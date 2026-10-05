@@ -9,6 +9,7 @@
   <body>
     <header>
       <h1>MCHOSE G87</h1>
+      <span id="battery" class="status" hidden></span>
       <span id="status" class="status off">Desconectado</span>
       <button id="connect">Conectar</button>
       <button id="disconnect" hidden>Desconectar</button>
@@ -36,10 +37,11 @@
           <h3>Estado del teclado</h3>
           <dl>
             <dt>Teclado</dt><dd id="st-awake">—</dd>
-            <dt>Batería</dt><dd id="st-battery">— <span class="hint">(llega sola cada tanto)</span></dd>
+            <dt>Batería</dt><dd id="st-battery">—</dd>
             <dt>Versión</dt><dd id="st-version" class="mono">—</dd>
           </dl>
           <p>
+            <button id="read-battery">Leer batería</button>
             <button id="read-version">Leer versión</button>
             <button id="read-config" class="primary">Leer configuración</button>
           </p>

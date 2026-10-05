@@ -129,6 +129,11 @@ pre,
   border-color: var(--ok);
 }
 
+.status.low {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
 .status.off {
   color: var(--muted);
 }

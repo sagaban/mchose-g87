@@ -17,6 +17,8 @@ import {
   DEFAULT_PALETTE,
   type Rgb,
   parseNotice,
+  parseBattery,
+  type Battery,
   decodeKeyValue,
   effects,
   hex,
@@ -55,6 +57,7 @@ function renderConnection() {
   $("#connect").hidden = on;
   $("#disconnect").hidden = !on;
   $("#kb-state").hidden = !hid.find("output", VENDOR_REPORT);
+  if (!on) $("#battery").hidden = true;
   renderEffects();
 
   $("#device-info").innerHTML = hid.devices
@@ -95,7 +98,7 @@ if (import.meta.env.DEV) Object.assign(window, { g87: { hid, Cmd, withLight, dec
 renderConnection();
 }
 
-$("#connect").addEventListener("click", () => run(() => hid.request()));
+$("#connect").addEventListener("click", () => run(() => hid.request()).then(() => refreshBattery()));
 $("#disconnect").addEventListener("click", () => run(() => hid.close()));
 
 if (hid.supported) {
@@ -104,7 +107,7 @@ if (hid.supported) {
     appendLog({ time: new Date(), dir: "info", text: "El teclado se desconectó" });
     renderConnection();
   });
-  run(() => hid.restore());
+  run(() => hid.restore()).then(() => refreshBattery());
 } else {
   $("#unsupported").hidden = false;
   $<HTMLButtonElement>("#connect").disabled = true;
@@ -116,12 +119,41 @@ hid.onLog((e) => {
   if (e.dir !== "in" || e.reportId !== VENDOR_REPORT || !e.data) return;
   const n = parseNotice(e.data);
   if (n?.kind === "awake") $("#st-awake").textContent = n.awake ? "Despierto" : "Dormido (apretá una tecla)";
-  if (n?.kind === "battery") $("#st-battery").textContent = `${n.percent} % (hipótesis)`;
+  if (n?.kind === "battery") showBattery(n.battery);
+  // Al despertar se consulta: el aviso de batería llega solo cada tanto.
+  if (n?.kind === "awake" && n.awake) refreshBattery();
 });
 
 const waking = {
   onSlow: () => ($("#st-awake").textContent = "Esperando respuesta… apretá una tecla para despertarlo"),
 };
+
+let batteryPending = false;
+
+/** Consulta 0x4A y actualiza la batería. Silenciosa: si el teclado duerme, se reintenta al despertar. */
+async function refreshBattery({ timeoutMs = 5000 } = {}) {
+  if (batteryPending || !hid.find("output", VENDOR_REPORT)) return;
+  batteryPending = true;
+  try {
+    showBattery(parseBattery(await hid.query(Cmd.battery, 0x01, { timeoutMs })));
+  } catch {
+    // Sin respuesta: probablemente dormido. El aviso de "despierto" dispara otra consulta.
+  } finally {
+    batteryPending = false;
+  }
+}
+
+function showBattery(b: Battery) {
+  const state = b.charging ? " · cargando" : "";
+  $("#st-battery").textContent = `${b.percent} %${state}`;
+  $("#battery").textContent = `${b.charging ? "⚡" : "🔋"} ${b.percent} %`;
+  $("#battery").classList.toggle("low", b.percent <= 15 && !b.charging);
+  $("#battery").hidden = false;
+}
+
+$("#read-battery").addEventListener("click", () =>
+  run(async () => showBattery(parseBattery(await hid.query(Cmd.battery, 0x01, waking)))),
+);
 
 $("#read-version").addEventListener("click", () =>
   run(async () => {

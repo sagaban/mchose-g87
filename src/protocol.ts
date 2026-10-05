@@ -113,7 +113,7 @@ export const Cmd = {
 /** Aviso asincrónico: [0a][01][00][04][tipo][valor][extra]… */
 export type Notice =
   | { kind: "awake"; awake: boolean }
-  | { kind: "battery"; percent: number; extra: number }
+  | { kind: "battery"; battery: Battery }
   | { kind: "lighting" }
   | { kind: "unknown"; raw: Uint8Array };
 
@@ -122,8 +122,8 @@ export function parseNotice(b: Uint8Array): Notice | null {
   switch (b[4]) {
     case 0x02:
       return { kind: "awake", awake: b[5] === 1 };
-    case 0x05: // hipótesis: 0x54 = 84 %
-      return { kind: "battery", percent: b[5], extra: b[6] };
+    case 0x05: // mismos 2 bytes que la respuesta de 0x4A
+      return { kind: "battery", battery: parseBattery(b.slice(5, 7)) };
     case 0x07:
       return { kind: "lighting" };
     default:
@@ -234,3 +234,16 @@ export const trimmedLength = (chunk: Uint8Array) => {
   while (n > 0 && chunk[n - 1] === 0) n--;
   return n;
 };
+
+export interface Battery {
+  percent: number;
+  charging: boolean;
+}
+
+/**
+ * Respuesta de 0x4A: [nivel %][cargando<<4 | ?]. Confirmado: 63 10 = 99 %, cargando.
+ * El nibble bajo sería "lleno" según el driver web, pero se vio 54 01 (84 %), así que no se usa.
+ */
+export function parseBattery(data: Uint8Array): Battery {
+  return { percent: data[0], charging: (data[1] & 0xf0) !== 0 };
+}
