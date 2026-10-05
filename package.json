@@ -1,6 +1,7 @@
 {
   "name": "mchose-g87",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@11.2.2",
   "scripts": {
