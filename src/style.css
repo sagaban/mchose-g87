@@ -39,6 +39,11 @@
   box-sizing: border-box;
 }
 
+/* Que ningún display de componente anule el atributo hidden. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -462,4 +467,40 @@ mark {
 
 .palette .slot input[type="color"]:disabled {
   cursor: not-allowed;
+}
+
+.layer-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.segmented {
+  display: inline-flex;
+  gap: 12px;
+}
+
+.segmented label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Teclas cuya asignación difiere de fábrica en la capa mostrada. */
+.board .key.remapped {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+
+.assign {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.assign select {
+  max-width: 220px;
 }

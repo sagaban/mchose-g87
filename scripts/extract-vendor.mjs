@@ -36,6 +36,17 @@ const label = (name, code) => {
   return short ? short[0] : resolved;
 };
 
+// Nombres para elegir asignaciones: solo los que son texto (las flechas son estilos de Qt).
+const hidNames = Object.fromEntries(
+  Object.entries(keyNames)
+    .map(([code, name]) => [
+      code,
+      // Teclado numérico (0x54–0x63): prefijo para no confundir con la fila de números.
+      +code >= 0x54 && +code <= 0x63 ? `Num ${name}` : Object.entries(pretty).find(([, from]) => from.includes(+code) || from.includes(name))?.[0] ?? name,
+    ])
+    .filter(([, name]) => !name.startsWith("image:")),
+);
+
 const xml = read("G87/G87_KeyBoed.xml");
 
 // Solo el primer bloque <KeyArrs>; el resto del archivo es un bloque comentado.
@@ -90,6 +101,10 @@ for (const line of ini.split(/\r?\n/)) {
 
 writeFileSync(
   out,
-  JSON.stringify({ keys, effects, params, step: { brightness: +step.luminanceStep, speed: +step.Speed }, packets }, null, 1),
+  JSON.stringify(
+    { keys, effects, params, step: { brightness: +step.luminanceStep, speed: +step.Speed }, packets, keyNames: hidNames },
+    null,
+    1,
+  ),
 );
 console.log(`${keys.length} teclas, ${effects.length} efectos, ${Object.keys(packets).length} paquetes → ${out.pathname}`);

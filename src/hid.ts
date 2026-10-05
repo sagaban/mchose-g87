@@ -210,7 +210,12 @@ export class Hid {
    * cada respuesta es [cmd][total][seq][len][datos…][checksum]. Si el teclado está dormido,
    * el dongle guarda el pedido y lo entrega al despertar; `onSlow` avisa para pedir una tecla.
    */
-  async query(cmd: number, sub = 0x01, { timeoutMs = 20000, onSlow = () => {} } = {}): Promise<Uint8Array> {
+  async query(
+    cmd: number,
+    sub = 0x01,
+    // Hasta 60 s: si el teclado duerme, hay que darle tiempo a la persona para apretar una tecla.
+    { timeoutMs = 60000, onSlow = () => {}, args = [] as number[] } = {},
+  ): Promise<Uint8Array> {
     const d = this.vendorDevice();
 
     const parts = new Map<number, Uint8Array>();
@@ -227,7 +232,8 @@ export class Hid {
         const b = new Uint8Array(ev.data.buffer, ev.data.byteOffset, ev.data.byteLength);
         if (ev.reportId !== VENDOR_REPORT || b[0] !== cmd || !validChecksum(b)) return;
         total = b[1];
-        parts.set(b[2], b.slice(4, 4 + b[3]));
+        // El nibble alto del largo puede traer la capa (mapa de teclas): el largo máximo es 14.
+        parts.set(b[2], b.slice(4, 4 + (b[3] & 0x0f)));
         if (parts.size === total) {
           clearTimeout(timer);
           clearTimeout(slow);
@@ -241,7 +247,7 @@ export class Hid {
 
     // Al despertar, el dongle a veces pierde partes de la respuesta: se reenvía el pedido
     // cada 2,5 s y se acumulan las partes de todos los intentos (los datos son los mismos).
-    const send = () => this.sendOutput(VENDOR_REPORT, buildVendorPacket(cmd, sub));
+    const send = () => this.sendOutput(VENDOR_REPORT, buildVendorPacket(cmd, sub, args));
     const retry = setInterval(() => send().catch(() => {}), 2500);
     d.addEventListener("inputreport", onReport);
     try {
@@ -258,7 +264,11 @@ export class Hid {
    * [cmd][total][idx][len][datos…] y el teclado confirma cada uno devolviendo cmd + idx.
    * Sin confirmación se reintenta el pedazo; si falla 3 veces se aborta.
    */
-  async writeBlock(cmd: number, payload: Uint8Array, { lastLen = (c: Uint8Array) => c.length } = {}) {
+  async writeBlock(
+    cmd: number,
+    payload: Uint8Array,
+    { lastLen = (c: Uint8Array) => c.length, lenTag = 0 } = {},
+  ) {
     const d = this.vendorDevice();
 
     const chunks: Uint8Array[] = [];
@@ -266,7 +276,8 @@ export class Hid {
 
     for (const [idx, chunk] of chunks.entries()) {
       const len = idx === chunks.length - 1 ? lastLen(chunk) : CHUNK;
-      const packet = buildVendorPacket(cmd, chunks.length, [idx, len, ...chunk]);
+      // lenTag: el mapa de teclas lleva la capa en el nibble alto del largo (capa<<4 | largo).
+      const packet = buildVendorPacket(cmd, chunks.length, [idx, lenTag | len, ...chunk]);
       let acked = false;
       for (let attempt = 0; attempt < 3 && !acked; attempt++) {
         const ack = this.waitFor(d, (b) => b[0] === cmd && b[2] === idx, 500);

@@ -107,7 +107,9 @@ export const Cmd = {
   setConfig: 0x04,
   colors: 0x49, // paleta: 7 colores RGB por efecto en 21·modo, 490 bytes
   setColors: 0x09,
-  battery: 0x4a, // [nivel %][cargando<<4 | lleno]
+  battery: 0x4a, // [nivel %][estado]
+  keymap: 0x41, // args [0x00, capa<<4]; 4 bytes por tecla (= paquete 0x83 por cable)
+  setKeymap: 0x01, // byte de largo = capa<<4 | largo
 } as const;
 
 /** Aviso asincrónico: [0a][01][00][04][tipo][valor][extra]… */
@@ -247,3 +249,93 @@ export interface Battery {
 export function parseBattery(data: Uint8Array): Battery {
   return { percent: data[0], charging: (data[1] & 0xf0) !== 0 };
 }
+
+// ---------- Mapa de teclas (comandos 0x41 / 0x01) ----------
+
+/** Bytes por capa que devuelve la lectura: 4 por tecla, por columnas (offset = keypos − 8). */
+export const KEYMAP_LEN = 504;
+/** Al escribir se completan 512 bytes con la marca 5A A5 al final, como el driver oficial. */
+const KEYMAP_TAIL = [0, 0, 0, 0, 0, 0, 0x5a, 0xa5];
+
+export const LAYERS = [
+  { id: 0, name: "Default" },
+  { id: 1, name: "Fn" },
+  { id: 2, name: "Fn2" },
+] as const;
+
+export const keymapPayload = (layer: Uint8Array) => {
+  const out = new Uint8Array(KEYMAP_LEN + KEYMAP_TAIL.length);
+  out.set(layer.slice(0, KEYMAP_LEN));
+  out.set(KEYMAP_TAIL, KEYMAP_LEN);
+  return out;
+};
+
+/** Offset de una tecla dentro del bloque de una capa. */
+export const keyOffset = (key: Key) => key.keypos - 8;
+
+export type Assignment = [number, number, number, number];
+
+export const keyAssignment = (layer: Uint8Array, key: Key) =>
+  [...layer.slice(keyOffset(key), keyOffset(key) + 4)] as Assignment;
+
+export function withAssignment(layer: Uint8Array, key: Key, a: Assignment) {
+  const out = layer.slice();
+  out.set(a, keyOffset(key));
+  return out;
+}
+
+const MODIFIERS = ["Ctrl", "Shift", "Alt", "Win", "Ctrl der.", "Shift der.", "Alt der.", "Win der."];
+
+/** Multimedia (tipo 02, código de 16 bits en los bytes 2–3). Los de la capa Fn de fábrica. */
+const CONSUMER: Record<number, string> = {
+  0xe2: "Mute",
+  0xe9: "Vol +",
+  0xea: "Vol −",
+  0xcd: "Play/Pausa",
+  0xb5: "Siguiente",
+  0xb6: "Anterior",
+  0xb7: "Stop",
+  0x6f: "Brillo pantalla +",
+  0x70: "Brillo pantalla −",
+};
+
+const EXTRA_KEYS: Record<number, string> = { 0x28: "Enter", 0x2a: "⌫", 0x46: "PrtSc", 0x64: "ISO \\" };
+const keyName = (code: number) => EXTRA_KEYS[code] ?? (data.keyNames as Record<string, string>)[code];
+
+/**
+ * Nombre legible de una asignación [tipo][mods][código alto][código bajo]:
+ * tipo 00 = tecla (+ modificadores), 02 = multimedia, 0D = Fn, 03/07/08 = funciones propias del
+ * teclado (conexión, sistema, iluminación).
+ */
+export function describeAssignment([type, mods, hi, lo]: Assignment): string {
+  if (type === 0 && mods === 0 && lo === 0) return "—";
+  if (type === 0) {
+    const m = MODIFIERS.filter((_, i) => mods & (1 << i));
+    const k = lo ? keyName(lo) ?? `0x${hex(lo)}` : "";
+    return [...m, k].filter(Boolean).join(" + ");
+  }
+  if (type === 2) return CONSUMER[(hi << 8) | lo] ?? `Multimedia 0x${hex((hi << 8) | lo, 4)}`;
+  if (type === 0x0d) return "Fn"; // la tecla Fn de fábrica: 0d 00 00 00
+  return `Función ${hexBytes([type, mods, hi, lo])}`;
+}
+
+export interface AssignmentOption {
+  group: string;
+  label: string;
+  value: Assignment;
+}
+
+/** Asignaciones que se pueden elegir en la interfaz. */
+export const ASSIGNMENT_OPTIONS: AssignmentOption[] = [
+  { group: "General", label: "Desactivada", value: [0, 0, 0, 0] },
+  ...Object.keys({ ...(data.keyNames as Record<string, string>), ...EXTRA_KEYS })
+    .map(Number)
+    .sort((a, b) => a - b)
+    .map((code) => ({ group: "Teclas", label: keyName(code)!, value: [0, 0, 0, code] as Assignment })),
+  ...MODIFIERS.map((label, i) => ({ group: "Modificadores", label, value: [0, 1 << i, 0, 0] as Assignment })),
+  ...Object.entries(CONSUMER).map(([code, label]) => ({
+    group: "Multimedia",
+    label,
+    value: [2, 0, +code >> 8, +code & 0xff] as Assignment,
+  })),
+];

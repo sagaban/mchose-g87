@@ -14,16 +14,21 @@ import {
   rgbToHex,
   trimmedLength,
   withPaletteSlots,
+  ASSIGNMENT_OPTIONS,
+  LAYERS,
+  describeAssignment,
+  keyAssignment,
+  keymapPayload,
+  withAssignment,
+  type Assignment,
   DEFAULT_PALETTE,
   type Rgb,
   parseNotice,
   parseBattery,
   type Battery,
-  decodeKeyValue,
   effects,
   hex,
   hexBytes,
-  keyBytes,
   keys,
   packetNames,
   packets,
@@ -207,12 +212,36 @@ $("#read-config").addEventListener("click", () =>
 
 // ---------- Teclado ----------
 
+let currentLayer = 0;
+/** Capas leídas del teclado (504 bytes cada una). */
+const layers = new Map<number, Uint8Array>();
+let selectedKey: Key | null = null;
+
+/** Asignación de fábrica: capa Default = KeyValue del XML, capa Fn = paquete Fn_default del INI. */
+function factoryAssignment(key: Key, layer: number): Assignment {
+  if (layer === 0) return [key.code >>> 24, (key.code >> 16) & 0xff, (key.code >> 8) & 0xff, key.code & 0xff];
+  if (layer === 1) return [...packets["Fn_default.KeyCode"].slice(key.keypos, key.keypos + 4)] as Assignment;
+  return [0, 0, 0, 0];
+}
+
+const sameAssignment = (a: Assignment, b: Assignment) => a.every((x, i) => x === b[i]);
+
+$("#layers").innerHTML = LAYERS.map(
+  (l) => `<label><input type="radio" name="layer" value="${l.id}" ${l.id === 0 ? "checked" : ""} /> ${l.name}</label>`,
+).join("");
+$("#layers").querySelectorAll<HTMLInputElement>("input").forEach((el) =>
+  el.addEventListener("change", () => {
+    currentLayer = Number(el.value);
+    renderBoard();
+    if (selectedKey) renderKey(selectedKey);
+  }),
+);
+
 const board = $("#board");
+const keyEls = new Map<Key, HTMLButtonElement>();
 for (const key of keys.filter((k) => !k.hidden)) {
   const el = document.createElement("button");
   el.className = "key";
-  el.textContent = key.label;
-  el.title = key.id;
   // Coordenadas del XML (lienzo de ~640×290) a porcentajes del contenedor.
   Object.assign(el.style, {
     left: `${(key.x / 640) * 100}%`,
@@ -221,27 +250,127 @@ for (const key of keys.filter((k) => !k.hidden)) {
     height: `${(key.h / 290) * 100}%`,
   });
   el.addEventListener("click", () => {
+    selectedKey = key;
     board.querySelectorAll(".selected").forEach((s) => s.classList.remove("selected"));
     el.classList.add("selected");
     renderKey(key);
   });
+  keyEls.set(key, el);
   board.append(el);
 }
 
-function renderKey(key: Key) {
-  const kv = decodeKeyValue(key.code);
-  const b = keyBytes(key);
-  $("#key-detail").className = "panel";
-  $("#key-detail").innerHTML = `
-    <h3>${esc(key.label)} <span class="hint mono">${esc(key.id)}</span></h3>
-    <dl>
-      <dt>KeyValue</dt><dd class="mono">0x${hex(key.code, 8)} → tipo ${hex(kv.type)}, mods ${hex(kv.modifiers)}, código HID 0x${hex(kv.code)}</dd>
-      <dt>keypos</dt><dd class="mono">${key.keypos} → capa Fn por defecto: ${hexBytes(b.fnKeycode)}</dd>
-      <dt>Diypos</dt><dd class="mono">${key.diypos} → color personalizado: ${hexBytes(b.diyColor)}</dd>
-      <dt>Effectpos</dt><dd class="mono">${key.effectpos} → color base: ${hexBytes(b.baseColor)}</dd>
-    </dl>
-    <p class="hint">Los offsets salen del XML. Que los bytes de cada paquete correspondan a esta tecla es una hipótesis.</p>`;
+/** Muestra en cada tecla lo que hace en la capa elegida; resalta lo que difiere de fábrica. */
+function renderBoard() {
+  const layer = layers.get(currentLayer);
+  for (const [key, el] of keyEls) {
+    if (!layer) {
+      el.textContent = key.label;
+      el.title = key.id;
+      el.classList.remove("remapped");
+      continue;
+    }
+    const a = keyAssignment(layer, key);
+    const text = describeAssignment(a);
+    el.textContent = currentLayer === 0 || text !== "—" ? text : "";
+    el.title = `${key.label}: ${text}`;
+    el.classList.toggle("remapped", !sameAssignment(a, factoryAssignment(key, currentLayer)));
+  }
+  $("#layer-status").textContent = layer
+    ? "Resaltadas: distintas de fábrica."
+    : `Capa ${LAYERS[currentLayer].name} sin leer.`;
 }
+
+$("#read-layer").addEventListener("click", () =>
+  run(async () => {
+    $("#layer-status").textContent = "Leyendo…";
+    try {
+      layers.set(currentLayer, await hid.query(Cmd.keymap, 0x01, { ...waking, args: [0x00, currentLayer << 4] }));
+    } catch (e) {
+      $("#layer-status").textContent = "No se pudo leer: ver la consola HID";
+      throw e;
+    }
+    renderBoard();
+    if (selectedKey) renderKey(selectedKey);
+  }),
+);
+
+const optionGroups = [...new Set(ASSIGNMENT_OPTIONS.map((o) => o.group))];
+
+function renderKey(key: Key) {
+  const layer = layers.get(currentLayer);
+  const detail = $("#key-detail");
+  detail.className = "panel";
+  if (!layer) {
+    detail.innerHTML = `<h3>${esc(key.label)}</h3><p class="hint">Leé la capa ${LAYERS[currentLayer].name} para ver y cambiar esta tecla.</p>`;
+    return;
+  }
+  const current = keyAssignment(layer, key);
+  const factory = factoryAssignment(key, currentLayer);
+  const options = optionGroups
+    .map(
+      (g) => `<optgroup label="${g}">${ASSIGNMENT_OPTIONS.map((o, i) =>
+        o.group === g
+          ? `<option value="${i}" ${sameAssignment(o.value, current) ? "selected" : ""}>${esc(o.label)}</option>`
+          : "",
+      ).join("")}</optgroup>`,
+    )
+    .join("");
+  const known = ASSIGNMENT_OPTIONS.some((o) => sameAssignment(o.value, current));
+  detail.innerHTML = `
+    <h3>${esc(key.label)} <span class="hint">· capa ${LAYERS[currentLayer].name}</span></h3>
+    <dl>
+      <dt>Ahora</dt><dd>${esc(describeAssignment(current))} <span class="hint mono">${hexBytes(current)}</span></dd>
+      <dt>De fábrica</dt><dd>${esc(describeAssignment(factory))} <span class="hint mono">${hexBytes(factory)}</span></dd>
+    </dl>
+    <p class="assign">
+      <label>Asignar
+        <select id="key-assign">
+          ${known ? "" : `<option value="" selected>${esc(describeAssignment(current))} (actual)</option>`}
+          ${options}
+        </select>
+      </label>
+      <button id="key-factory" ${sameAssignment(current, factory) ? "disabled" : ""}>Volver a fábrica</button>
+      <button id="key-apply" class="primary">Aplicar</button>
+      <span id="key-status" class="hint"></span>
+    </p>`;
+  $("#key-apply").addEventListener("click", () => {
+    const v = $<HTMLSelectElement>("#key-assign").value;
+    if (v !== "") applyKey(key, ASSIGNMENT_OPTIONS[Number(v)].value);
+  });
+  $("#key-factory").addEventListener("click", () => applyKey(key, factory));
+}
+
+/** Lee la capa, cambia los 4 bytes de la tecla, escribe la capa entera y verifica releyendo. */
+async function applyKey(key: Key, value: Assignment) {
+  const status = $("#key-status");
+  const layerId = currentLayer;
+  const read = () => hid.query(Cmd.keymap, 0x01, { ...waking, args: [0x00, layerId << 4] });
+  status.textContent = "Leyendo capa…";
+  await run(async () => {
+    try {
+      const fresh = await read();
+      const next = withAssignment(fresh, key, value);
+      if (next.every((b, i) => b === fresh[i])) {
+        status.textContent = "Ya tenía esa asignación.";
+        return;
+      }
+      status.textContent = "Escribiendo…";
+      await hid.writeBlock(Cmd.setKeymap, keymapPayload(next), { lenTag: layerId << 4, lastLen: trimmedLength });
+      status.textContent = "Verificando…";
+      const after = await read();
+      layers.set(layerId, after);
+      const ok = after.every((b, i) => b === next[i]);
+      renderBoard();
+      renderKey(key);
+      $("#key-status").textContent = ok ? "Aplicado ✓" : "El teclado guardó otros valores: revisá la consola";
+    } catch (e) {
+      status.textContent = "Error: ver la consola HID";
+      throw e;
+    }
+  });
+}
+
+renderBoard();
 
 // ---------- Iluminación ----------
 

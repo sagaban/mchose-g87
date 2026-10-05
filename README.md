@@ -11,11 +11,13 @@ nada, no necesita drivers y no se conecta a ningún servidor.
 - **Iluminación:** efecto, brillo, velocidad y color de cada efecto.
 - **Paleta:** 7 colores editables por efecto; elegís cuál usa o el modo automático (todo el espectro).
 - **Batería:** porcentaje y si está cargando, en el encabezado.
+- **Remapeo de teclas:** en las capas Default, Fn y Fn2; cualquier tecla puede ser otra tecla, un modificador o una
+  función multimedia, y se puede volver a la asignación de fábrica.
 - **Sin sorpresas:** cada cambio se lee, se escribe solo lo necesario y se verifica releyendo el teclado.
 - **Herramientas de análisis:** layout del teclado, paquetes de fábrica decodificados y una consola HID con log.
 
-Probado con el G87 conectado por el **receptor 2.4 GHz** (USB `41e4:2001`). El modo por cable y el remapeo de teclas
-todavía no están implementados.
+Probado con el G87 conectado por el **receptor 2.4 GHz** (USB `41e4:2001`). El modo por cable todavía no está
+implementado.
 
 ## Requisitos
 
@@ -33,6 +35,7 @@ Abrí http://localhost:5173 en Chrome, tocá **Conectar** y elegí "MCHOSE 2.4G 
 
 1. En **Dispositivo**, tocá **Leer configuración** para cargar tus valores actuales.
 2. En **Iluminación**, elegí un efecto, ajustalo y tocá **Aplicar**.
+3. En **Teclado**, elegí la capa, tocá **Leer capa**, después una tecla, y asignale lo que quieras.
 
 Algunas cosas a saber:
 
@@ -60,6 +63,7 @@ checksum = (0x13 + suma de los 18 bytes anteriores) & 0xFF
 | Configuración: efecto activo y parámetros de cada efecto | `0x44` | `0x04` | 128 bytes |
 | Colores: paleta de 7 colores RGB por efecto | `0x49` | `0x09` | 490 bytes (+ cola `5A A5` al escribir) |
 | Batería: `[nivel %][estado]` | `0x4A` | — | 2 bytes |
+| Mapa de teclas de una capa | `0x41` | `0x01` | 504 bytes (512 con la cola `5A A5` al escribir) |
 
 **Configuración (128 bytes):**
 
@@ -73,6 +77,12 @@ checksum = (0x13 + suma de los 18 bytes anteriores) & 0xFF
 
 **Batería:** `63 10` = 99 % con cable; `61 01` = 97 % a batería.
 
+**Mapa de teclas:** la lectura lleva la capa en los argumentos (`41 01 00 YY`, con `YY` = `00` Default, `10` Fn,
+`20` Fn2) y la escritura en el nibble alto del byte de largo (`capa<<4 | largo`). Cada tecla ocupa 4 bytes
+`[tipo][modificadores][código alto][código bajo]`, ordenadas por columnas (el offset es el `keypos` del XML menos 8):
+tipo `00` = tecla HID con modificadores, `02` = multimedia (código de 16 bits), `0D` = Fn, `03`/`07`/`08` = funciones
+del teclado (conexión, sistema, iluminación). En modo Mac el propio teclado guarda Win y Alt intercambiadas.
+
 ## Cómo se hizo
 
 El protocolo salió de dos fuentes que coinciden:
@@ -81,6 +91,7 @@ El protocolo salió de dos fuentes que coinciden:
   de configuración que trae su instalador.
 - [mchose-g87-controller-ubuntu](https://github.com/HoanNguyen1711/mchose-g87-controller-ubuntu), que lo sacó del
   driver web oficial y documentó la escritura.
+- El propio driver web oficial (M HUB), para el mapa de teclas.
 
 Cada comando que usa la app se verificó contra un G87 real.
 
