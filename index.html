@@ -15,6 +15,14 @@
       <button id="disconnect" hidden>Desconectar</button>
     </header>
 
+    <div id="reconnect" class="banner warn reconnect" hidden>
+      <span>
+        <b>Se perdió la conexión con el teclado.</b> El receptor se desconectó o se reinició, y Chrome necesita que lo
+        vuelvas a autorizar. Si estabas aplicando un cambio, volvé a tocar Aplicar después de conectar.
+      </span>
+      <button id="reconnect-btn" class="primary">Volver a conectar</button>
+    </div>
+
     <p id="unsupported" class="banner error" hidden>
       Este navegador no soporta WebHID. Usá Chrome, Edge o Brave en escritorio.
     </p>

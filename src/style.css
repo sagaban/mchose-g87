@@ -190,6 +190,18 @@ main {
   border: 1px solid var(--warn-border);
 }
 
+.banner.reconnect {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.banner.reconnect span {
+  flex: 1;
+  min-width: 240px;
+}
+
 .banner.error {
   background: var(--danger-bg);
   border: 1px solid var(--danger);

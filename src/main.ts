@@ -54,7 +54,8 @@ function renderConnection() {
   const on = hid.devices.length > 0;
   $("#status").textContent = on ? `Conectado (${hid.devices[0].productName})` : "Desconectado";
   $("#status").className = `status ${on ? "on" : "off"}`;
-  $("#connect").hidden = on;
+  $("#connect").hidden = on || hid.lost;
+  $("#reconnect").hidden = on || !hid.lost;
   $("#disconnect").hidden = !on;
   $("#kb-state").hidden = !hid.find("output", VENDOR_REPORT);
   if (!on) $("#battery").hidden = true;
@@ -98,14 +99,15 @@ if (import.meta.env.DEV) Object.assign(window, { g87: { hid, Cmd, withLight, dec
 renderConnection();
 }
 
-$("#connect").addEventListener("click", () => run(() => hid.request()).then(() => refreshBattery()));
+const connect = () => run(() => hid.request()).then(() => refreshBattery());
+$("#connect").addEventListener("click", connect);
+$("#reconnect-btn").addEventListener("click", connect);
 $("#disconnect").addEventListener("click", () => run(() => hid.close()));
 
 if (hid.supported) {
-  navigator.hid.addEventListener("disconnect", (e) => {
-    hid.devices = hid.devices.filter((d) => d !== e.device);
-    appendLog({ time: new Date(), dir: "info", text: "El teclado se desconectó" });
+  hid.watch(() => {
     renderConnection();
+    if (hid.devices.length) refreshBattery();
   });
   run(() => hid.restore()).then(() => refreshBattery());
 } else {
@@ -118,7 +120,9 @@ if (hid.supported) {
 hid.onLog((e) => {
   if (e.dir !== "in" || e.reportId !== VENDOR_REPORT || !e.data) return;
   const n = parseNotice(e.data);
-  if (n?.kind === "awake") $("#st-awake").textContent = n.awake ? "Despierto" : "Dormido (apretá una tecla)";
+  // Cualquier respuesta (no aviso) prueba que está despierto.
+  if (!n) setAwake(true);
+  if (n?.kind === "awake") setAwake(n.awake);
   if (n?.kind === "battery") showBattery(n.battery);
   // Al despertar se consulta: el aviso de batería llega solo cada tanto.
   if (n?.kind === "awake" && n.awake) refreshBattery();
@@ -127,6 +131,10 @@ hid.onLog((e) => {
 const waking = {
   onSlow: () => ($("#st-awake").textContent = "Esperando respuesta… apretá una tecla para despertarlo"),
 };
+
+function setAwake(awake: boolean) {
+  $("#st-awake").textContent = awake ? "Despierto" : "Dormido: apretá una tecla para despertarlo";
+}
 
 let batteryPending = false;
 
@@ -137,7 +145,11 @@ async function refreshBattery({ timeoutMs = 5000 } = {}) {
   try {
     showBattery(parseBattery(await hid.query(Cmd.battery, 0x01, { timeoutMs })));
   } catch {
-    // Sin respuesta: probablemente dormido. El aviso de "despierto" dispara otra consulta.
+    // Sin respuesta: dormido. El aviso de "despierto" dispara otra consulta.
+    if (hid.devices.length) {
+      setAwake(false);
+      if (!$("#battery").textContent) $("#st-battery").textContent = "Se actualiza cuando despierte";
+    }
   } finally {
     batteryPending = false;
   }

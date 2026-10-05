@@ -241,8 +241,8 @@ export interface Battery {
 }
 
 /**
- * Respuesta de 0x4A: [nivel %][cargando<<4 | ?]. Confirmado: 63 10 = 99 %, cargando.
- * El nibble bajo sería "lleno" según el driver web, pero se vio 54 01 (84 %), así que no se usa.
+ * Respuesta de 0x4A: [nivel %][estado]. Confirmado: 63 10 = 99 % con cable, 61 01 = 97 % sin cable.
+ * El driver web llama "lleno" al nibble bajo, pero aparece en 1 al estar a batería: no se usa.
  */
 export function parseBattery(data: Uint8Array): Battery {
   return { percent: data[0], charging: (data[1] & 0xf0) !== 0 };

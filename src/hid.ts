@@ -56,9 +56,19 @@ export const deviceLabel = (d: HIDDevice) => {
   return `${d.productName} [${pages.join(", ")}]`;
 };
 
+export class DisconnectedError extends Error {
+  constructor(message = "El teclado se desconectó a mitad de la operación.") {
+    super(message);
+  }
+}
+
 export class Hid {
   devices: HIDDevice[] = [];
+  /** Se perdió la conexión sin que el usuario desconectara: hay que volver a autorizar. */
+  lost = false;
   private listeners = new Set<Listener>();
+  /** Operaciones en curso: se cortan si el teclado se desconecta. */
+  private pending = new Set<(e: Error) => void>();
 
   get supported() {
     return "hid" in navigator;
@@ -72,6 +82,51 @@ export class Hid {
   private log(e: Omit<LogEntry, "time">) {
     const entry = { ...e, time: new Date() };
     this.listeners.forEach((fn) => fn(entry));
+  }
+
+  /**
+   * Sigue conexiones y desconexiones. El dongle no informa número de serie, así que si se
+   * reinicia Chrome lo ve como un dispositivo nuevo y pierde el permiso: no llega "connect"
+   * y hay que volver a autorizarlo con requestDevice(). Si el permiso sigue, se reabre solo.
+   */
+  watch(onChange: () => void) {
+    navigator.hid.addEventListener("disconnect", (e) => {
+      if (!this.devices.includes(e.device)) return;
+      this.devices = this.devices.filter((d) => d !== e.device);
+      if (this.devices.length) return;
+      this.lost = true;
+      this.log({ dir: "info", text: "El teclado se desconectó" });
+      const err = new DisconnectedError();
+      this.pending.forEach((abort) => abort(err));
+      this.pending.clear();
+      onChange();
+    });
+    navigator.hid.addEventListener("connect", async (e) => {
+      if (e.device.vendorId !== VENDOR_ID) return;
+      try {
+        await this.open([e.device]);
+        this.log({ dir: "info", text: "Reconectado automáticamente" });
+      } catch (err) {
+        this.log({ dir: "error", text: err instanceof Error ? err.message : String(err) });
+      }
+      onChange();
+    });
+  }
+
+  /** Interfaz con el canal vendor 0x13 (modo dongle), o un error que explique por qué no está. */
+  private vendorDevice() {
+    if (!this.devices.length) throw new DisconnectedError("El teclado no está conectado.");
+    const d = this.find("output", VENDOR_REPORT);
+    if (!d) throw new Error("Este modo de conexión no tiene el canal 0x13 (¿está conectado por cable?)");
+    return d;
+  }
+
+  /** Corta `p` con DisconnectedError si el teclado se desconecta antes de que termine. */
+  private guard<T>(p: Promise<T>): Promise<T> {
+    let abort!: (e: Error) => void;
+    const lost = new Promise<never>((_, reject) => (abort = reject));
+    this.pending.add(abort);
+    return Promise.race([p, lost]).finally(() => this.pending.delete(abort));
   }
 
   /** Dispositivos ya autorizados en sesiones anteriores, sin pedir permiso. */
@@ -109,6 +164,7 @@ export class Hid {
         });
       });
       this.devices.push(d);
+      this.lost = false;
       this.log({ dir: "info", text: `Abierto: ${deviceLabel(d)} (PID 0x${d.productId.toString(16)})` });
     }
   }
@@ -116,6 +172,7 @@ export class Hid {
   async close() {
     for (const d of this.devices) await d.close();
     this.devices = [];
+    this.lost = false;
     this.log({ dir: "info", text: "Desconectado" });
   }
 
@@ -154,8 +211,7 @@ export class Hid {
    * el dongle guarda el pedido y lo entrega al despertar; `onSlow` avisa para pedir una tecla.
    */
   async query(cmd: number, sub = 0x01, { timeoutMs = 20000, onSlow = () => {} } = {}): Promise<Uint8Array> {
-    const d = this.find("output", VENDOR_REPORT);
-    if (!d) throw new Error("No hay canal vendor 0x13 (¿conectado por cable?)");
+    const d = this.vendorDevice();
 
     const parts = new Map<number, Uint8Array>();
     let total = -1;
@@ -190,7 +246,7 @@ export class Hid {
     d.addEventListener("inputreport", onReport);
     try {
       await send();
-      return await done;
+      return await this.guard(done);
     } finally {
       clearInterval(retry);
       d.removeEventListener("inputreport", onReport);
@@ -203,8 +259,7 @@ export class Hid {
    * Sin confirmación se reintenta el pedazo; si falla 3 veces se aborta.
    */
   async writeBlock(cmd: number, payload: Uint8Array, { lastLen = (c: Uint8Array) => c.length } = {}) {
-    const d = this.find("output", VENDOR_REPORT);
-    if (!d) throw new Error("No hay canal vendor 0x13 (¿conectado por cable?)");
+    const d = this.vendorDevice();
 
     const chunks: Uint8Array[] = [];
     for (let i = 0; i < payload.length; i += CHUNK) chunks.push(payload.slice(i, i + CHUNK));
@@ -216,7 +271,15 @@ export class Hid {
       for (let attempt = 0; attempt < 3 && !acked; attempt++) {
         const ack = this.waitFor(d, (b) => b[0] === cmd && b[2] === idx, 500);
         await this.sendOutput(VENDOR_REPORT, packet);
-        acked = await ack;
+        try {
+          acked = await this.guard(ack);
+        } catch (e) {
+          if (e instanceof DisconnectedError && idx > 0)
+            throw new DisconnectedError(
+              `El teclado se desconectó en el pedazo ${idx + 1}/${chunks.length}: la escritura quedó incompleta. Volvé a conectar y aplicá de nuevo.`,
+            );
+          throw e;
+        }
       }
       if (!acked) throw new Error(`El teclado no confirmó el pedazo ${idx + 1}/${chunks.length} del comando 0x${cmd.toString(16)}`);
     }
