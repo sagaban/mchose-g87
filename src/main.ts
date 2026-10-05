@@ -7,6 +7,13 @@ import {
   LEVEL_MAX,
   PALETTE_CYCLE,
   withLight,
+  COLOR_LEN,
+  colorPayload,
+  hexToRgb,
+  palette,
+  rgbToHex,
+  trimmedLength,
+  withColor,
   parseNotice,
   decodeKeyValue,
   effects,
@@ -81,7 +88,7 @@ async function run(fn: () => Promise<unknown>) {
     appendLog({ time: new Date(), dir: "error", text: e instanceof Error ? e.message : String(e) });
   }
   // Acceso desde la consola del navegador para depurar el protocolo.
-if (import.meta.env.DEV) Object.assign(window, { g87: { hid, Cmd, withLight, decodeConfig } });
+if (import.meta.env.DEV) Object.assign(window, { g87: { hid, Cmd, withLight, decodeConfig, withColor, colorPayload, trimmedLength, palette } });
 
 renderConnection();
 }
@@ -125,6 +132,7 @@ $("#read-config").addEventListener("click", () =>
   run(async () => {
     const cfg = await hid.query(Cmd.config, 0x01, waking);
     lastConfig = cfg;
+    lastColors = (await hid.query(Cmd.colors, 0x01, waking)).slice(0, COLOR_LEN);
     renderEffects();
     const diff = configDiff(cfg);
     const changed = new Set(diff.map((d) => d.offset));
@@ -194,6 +202,8 @@ function renderKey(key: Key) {
 let selectedEffect: Effect = effects[0];
 /** Última configuración leída del teclado, para precargar los controles. */
 let lastConfig: Uint8Array | null = null;
+/** Últimas paletas leídas (0x49). */
+let lastColors: Uint8Array | null = null;
 
 function renderEffects() {
   $("#effects").innerHTML = "";
@@ -210,6 +220,7 @@ function renderEffects() {
 
   const fx = selectedEffect;
   const current = lastConfig && fx.mode ? decodeConfigFor(lastConfig, fx.mode) : null;
+  const pal = lastColors && fx.mode ? palette(lastColors, fx.mode) : null;
   const range = (id: string, label: string, value: number) =>
     `<label>${label} <input id="${id}" type="range" min="0" max="${LEVEL_MAX}" step="1" value="${value}" />
       <output class="mono">${value}</output></label>`;
@@ -218,6 +229,8 @@ function renderEffects() {
     <p class="hint mono">Modo ${fx.mode}${current ? "" : " · leé la configuración para ver los valores actuales"}</p>
     ${fx.brightness ? range("fx-brightness", "Brillo", current?.brightness ?? LEVEL_MAX) : ""}
     ${fx.speed ? range("fx-speed", "Velocidad", current?.speed ?? 2) : ""}
+    ${fx.color ? `<label>Color <input id="fx-color" type="color" value="${pal ? rgbToHex(pal[0]) : "#ffffff"}" /></label>` : ""}
+    ${pal && fx.color ? `<p class="swatches" title="Paleta del efecto">${pal.map((c) => `<span style="background:${rgbToHex(c)}"></span>`).join("")}</p>` : ""}
     ${fx.multicolor ? `<label class="check"><input id="fx-multi" type="checkbox" ${current?.multicolor === PALETTE_CYCLE ? "checked" : ""} /> Recorrer la paleta de colores</label>` : ""}
     ${!fx.brightness && !fx.speed && !fx.multicolor ? `<p class="hint">Este efecto no tiene parámetros.</p>` : ""}
     <p><button id="fx-apply" class="primary" ${hid.find("output", VENDOR_REPORT) ? "" : "disabled"}>Aplicar</button>
@@ -226,6 +239,11 @@ function renderEffects() {
   $("#effect-params").querySelectorAll<HTMLInputElement>("input[type=range]").forEach((r) =>
     r.addEventListener("input", () => (r.nextElementSibling!.textContent = r.value)),
   );
+  // Elegir un color fijo desactiva el recorrido de la paleta.
+  document.querySelector("#fx-color")?.addEventListener("input", () => {
+    const multi = document.querySelector<HTMLInputElement>("#fx-multi");
+    if (multi) multi.checked = false;
+  });
   $("#fx-apply").addEventListener("click", () => applyLight(fx));
 }
 
@@ -258,9 +276,26 @@ async function applyLight(fx: Effect) {
       });
       status.textContent = "Escribiendo…";
       await hid.writeBlock(Cmd.setConfig, next);
+
+      // Color: solo si el efecto lo admite y el elegido es distinto del guardado.
+      const picked = document.querySelector<HTMLInputElement>("#fx-color")?.value;
+      let colorsOk = true;
+      if (picked) {
+        const colors = (await hid.query(Cmd.colors, 0x01, waking)).slice(0, COLOR_LEN);
+        if (rgbToHex(palette(colors, fx.mode)[0]) !== picked.toLowerCase()) {
+          const nextColors = withColor(colors, fx.mode, hexToRgb(picked));
+          status.textContent = "Escribiendo color…";
+          await hid.writeBlock(Cmd.setColors, colorPayload(nextColors), { lastLen: trimmedLength });
+          lastColors = (await hid.query(Cmd.colors, 0x01, waking)).slice(0, COLOR_LEN);
+          colorsOk = lastColors.every((b, i) => b === nextColors[i]);
+        } else {
+          lastColors = colors;
+        }
+      }
+
       status.textContent = "Verificando…";
       lastConfig = await hid.query(Cmd.config, 0x01, waking);
-      const ok = lastConfig.every((b, i) => b === next[i]);
+      const ok = colorsOk && lastConfig.every((b, i) => b === next[i]);
       status.textContent = ok ? "Aplicado ✓" : "El teclado guardó otros valores: revisá la consola";
     } catch (e) {
       status.textContent = "Error: ver la consola HID";

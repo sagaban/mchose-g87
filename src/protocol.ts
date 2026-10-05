@@ -181,3 +181,46 @@ export function withLight(cfg: Uint8Array, change: LightChange) {
   out[at + 1] = (speed << 4) | (multi & 0x0f);
   return out;
 }
+
+// ---------- Paletas de color (comandos 0x49 / 0x09) ----------
+
+/** 23 efectos × 7 colores RGB (21 bytes) + 7 bytes finales que no son colores. */
+export const COLOR_LEN = 490;
+export const PALETTE_BYTES = 21;
+/**
+ * Cola que el driver web agrega a cada escritura de colores (con la marca 5A A5).
+ * El último pedazo se manda con el largo sin los ceros finales.
+ */
+export const COLOR_TAIL = new Uint8Array([...new Array(16).fill(0), 0x5a, 0xa5, ...new Array(10).fill(0)]);
+
+export type Rgb = [number, number, number];
+
+export function palette(colors: Uint8Array, mode: number): Rgb[] {
+  const at = PALETTE_BYTES * mode;
+  return Array.from({ length: 7 }, (_, i) => [...colors.slice(at + 3 * i, at + 3 * i + 3)] as Rgb);
+}
+
+/** Copia del bloque con el color principal (el primero de la paleta) del efecto cambiado. */
+export function withColor(colors: Uint8Array, mode: number, rgb: Rgb) {
+  const out = colors.slice();
+  out.set(rgb, PALETTE_BYTES * mode);
+  return out;
+}
+
+export const rgbToHex = (c: Rgb) => "#" + c.map((x) => hex(x).toLowerCase()).join("");
+export const hexToRgb = (s: string): Rgb => [1, 3, 5].map((i) => parseInt(s.slice(i, i + 2), 16)) as Rgb;
+
+/** Payload completo para 0x09: bloque + cola. */
+export const colorPayload = (colors: Uint8Array) => {
+  const out = new Uint8Array(colors.length + COLOR_TAIL.length);
+  out.set(colors);
+  out.set(COLOR_TAIL, colors.length);
+  return out;
+};
+
+/** Largo del último pedazo de una escritura de colores: sin los ceros finales. */
+export const trimmedLength = (chunk: Uint8Array) => {
+  let n = chunk.length;
+  while (n > 0 && chunk[n - 1] === 0) n--;
+  return n;
+};
