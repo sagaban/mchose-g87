@@ -141,8 +141,8 @@ export function configDiff(current: Uint8Array) {
  * Bloque de configuración (128 bytes, comando 0x44 / 0x84). Confirmado contra el teclado:
  *   [10]              efecto activo (= ModelCode del XML)
  *   [0x38 + 2·n]      brillo del efecto n (0–4)
- *   [0x38 + 2·n + 1]  nibble alto: velocidad (0–4) · nibble bajo: modo de color
- *                     (0 = un color de la paleta, 7 = recorre los 7 colores)
+ *   [0x38 + 2·n + 1]  nibble alto: velocidad (0–4) · nibble bajo: origen del color
+ *                     (0–6 = ese lugar de la paleta, 7 = colores automáticos de todo el espectro)
  */
 export const ConfigOffset = { effect: 10, effectParams: 0x38 } as const;
 
@@ -154,18 +154,20 @@ export function decodeConfig(cfg: Uint8Array) {
     mode,
     brightness: cfg[at],
     speed: cfg[at + 1] >> 4,
-    multicolor: cfg[at + 1] & 0x0f,
+    colorSource: cfg[at + 1] & 0x0f,
   };
 }
 
 export const LEVEL_MAX = 4;
-export const PALETTE_CYCLE = 7;
+/** Origen de color 7: el efecto genera colores de todo el espectro e ignora la paleta. */
+export const AUTO_COLOR = 7;
 
 export interface LightChange {
   mode: number;
   brightness?: number;
   speed?: number;
-  multicolor?: number;
+  /** 0–6: lugar de la paleta; AUTO_COLOR: colores automáticos. */
+  colorSource?: number;
 }
 
 /** Copia del bloque con el efecto activo cambiado; solo toca los bytes de ese efecto. */
@@ -177,8 +179,8 @@ export function withLight(cfg: Uint8Array, change: LightChange) {
   if (change.mode === 0) return out; // "Off" no tiene parámetros
   if (change.brightness !== undefined) out[at] = clamp(change.brightness);
   const speed = change.speed !== undefined ? clamp(change.speed) : out[at + 1] >> 4;
-  const multi = change.multicolor ?? out[at + 1] & 0x0f;
-  out[at + 1] = (speed << 4) | (multi & 0x0f);
+  const source = change.colorSource ?? out[at + 1] & 0x0f;
+  out[at + 1] = (speed << 4) | (source & 0x0f);
   return out;
 }
 
@@ -200,12 +202,20 @@ export function palette(colors: Uint8Array, mode: number): Rgb[] {
   return Array.from({ length: 7 }, (_, i) => [...colors.slice(at + 3 * i, at + 3 * i + 3)] as Rgb);
 }
 
-/** Copia del bloque con el color principal (el primero de la paleta) del efecto cambiado. */
-export function withColor(colors: Uint8Array, mode: number, rgb: Rgb) {
+/**
+ * Copia del bloque con algunos colores de la paleta del efecto cambiados.
+ * Qué lugar se usa lo decide el origen de color de la configuración (ver decodeConfig).
+ */
+export function withPaletteSlots(colors: Uint8Array, mode: number, slots: Map<number, Rgb>) {
   const out = colors.slice();
-  out.set(rgb, PALETTE_BYTES * mode);
+  for (const [slot, rgb] of slots) out.set(rgb, PALETTE_BYTES * mode + 3 * slot);
   return out;
 }
+
+/** Paleta de fábrica (la misma en todos los efectos). */
+export const DEFAULT_PALETTE: Rgb[] = [
+  [0xff, 0, 0], [0, 0xff, 0], [0, 0, 0xff], [0xff, 0xff, 0], [0xff, 0, 0xff], [0, 0xff, 0xff], [0xff, 0xff, 0xff],
+];
 
 export const rgbToHex = (c: Rgb) => "#" + c.map((x) => hex(x).toLowerCase()).join("");
 export const hexToRgb = (s: string): Rgb => [1, 3, 5].map((i) => parseInt(s.slice(i, i + 2), 16)) as Rgb;

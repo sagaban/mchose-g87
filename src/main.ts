@@ -5,7 +5,7 @@ import {
   decodeConfig,
   ConfigOffset,
   LEVEL_MAX,
-  PALETTE_CYCLE,
+  AUTO_COLOR,
   withLight,
   COLOR_LEN,
   colorPayload,
@@ -13,7 +13,9 @@ import {
   palette,
   rgbToHex,
   trimmedLength,
-  withColor,
+  withPaletteSlots,
+  DEFAULT_PALETTE,
+  type Rgb,
   parseNotice,
   decodeKeyValue,
   effects,
@@ -88,7 +90,7 @@ async function run(fn: () => Promise<unknown>) {
     appendLog({ time: new Date(), dir: "error", text: e instanceof Error ? e.message : String(e) });
   }
   // Acceso desde la consola del navegador para depurar el protocolo.
-if (import.meta.env.DEV) Object.assign(window, { g87: { hid, Cmd, withLight, decodeConfig, withColor, colorPayload, trimmedLength, palette } });
+if (import.meta.env.DEV) Object.assign(window, { g87: { hid, Cmd, withLight, decodeConfig, withPaletteSlots, colorPayload, trimmedLength, palette } });
 
 renderConnection();
 }
@@ -149,7 +151,7 @@ $("#read-config").addEventListener("click", () =>
         <dt>Efecto</dt><dd>${esc(c.effect?.name ?? "desconocido")} <span class="hint mono">(modo ${c.mode})</span></dd>
         <dt>Brillo</dt><dd>${c.brightness} / 4</dd>
         <dt>Velocidad</dt><dd>${c.speed} / 4</dd>
-        <dt>Color</dt><dd>${c.multicolor === 7 ? "Recorre la paleta" : `Un color (${c.multicolor})`}</dd>
+        <dt>Color</dt><dd>${c.colorSource === AUTO_COLOR ? "Automático (todo el espectro)" : `Lugar ${c.colorSource + 1} de la paleta`}</dd>
       </dl>
       <p class="hint">${cfg.length} bytes. Resaltado: distinto del valor de fábrica (${diff.length} bytes).</p>
       <pre class="hexdump">${lines.join("\n")}</pre>
@@ -229,9 +231,7 @@ function renderEffects() {
     <p class="hint mono">Modo ${fx.mode}${current ? "" : " · leé la configuración para ver los valores actuales"}</p>
     ${fx.brightness ? range("fx-brightness", "Brillo", current?.brightness ?? LEVEL_MAX) : ""}
     ${fx.speed ? range("fx-speed", "Velocidad", current?.speed ?? 2) : ""}
-    ${fx.color ? `<label>Color <input id="fx-color" type="color" value="${pal ? rgbToHex(pal[0]) : "#ffffff"}" /></label>` : ""}
-    ${pal && fx.color ? `<p class="swatches" title="Paleta del efecto">${pal.map((c) => `<span style="background:${rgbToHex(c)}"></span>`).join("")}</p>` : ""}
-    ${fx.multicolor ? `<label class="check"><input id="fx-multi" type="checkbox" ${current?.multicolor === PALETTE_CYCLE ? "checked" : ""} /> Recorrer la paleta de colores</label>` : ""}
+    ${fx.color || fx.multicolor ? paletteEditor(pal, current?.colorSource ?? 0, !!fx.multicolor) : ""}
     ${!fx.brightness && !fx.speed && !fx.multicolor ? `<p class="hint">Este efecto no tiene parámetros.</p>` : ""}
     <p><button id="fx-apply" class="primary" ${hid.find("output", VENDOR_REPORT) ? "" : "disabled"}>Aplicar</button>
       <span id="fx-status" class="hint"></span></p>`;
@@ -239,13 +239,48 @@ function renderEffects() {
   $("#effect-params").querySelectorAll<HTMLInputElement>("input[type=range]").forEach((r) =>
     r.addEventListener("input", () => (r.nextElementSibling!.textContent = r.value)),
   );
-  // Elegir un color fijo desactiva el recorrido de la paleta.
-  document.querySelector("#fx-color")?.addEventListener("input", () => {
-    const multi = document.querySelector<HTMLInputElement>("#fx-multi");
-    if (multi) multi.checked = false;
-  });
+  // Solo se escriben los lugares de la paleta que el usuario tocó.
+  $("#effect-params").querySelectorAll<HTMLInputElement>("input[data-slot]").forEach((el) =>
+    el.addEventListener("input", () => (el.dataset.dirty = "1")),
+  );
+  $("#effect-params")
+    .querySelectorAll("input[name=fx-source]")
+    .forEach((el) => el.addEventListener("change", updatePaletteMode));
   $("#fx-apply").addEventListener("click", () => applyLight(fx));
 }
+
+function paletteEditor(pal: Rgb[] | null, source: number, canAuto: boolean) {
+  const colors = pal ?? DEFAULT_PALETTE;
+  const slots = colors
+    .map(
+      (c, i) => `<label class="slot">
+        <input type="color" data-slot="${i}" value="${rgbToHex(c)}" ${pal ? "" : "disabled"} />
+        <span><input type="radio" name="fx-source" value="${i}" ${source === i ? "checked" : ""} /> ${i + 1}</span>
+      </label>`,
+    )
+    .join("");
+  return `
+    <fieldset id="fx-palette" class="palette${source === AUTO_COLOR ? " auto" : ""}">
+      <legend>Color</legend>
+      <div class="slots">${slots}</div>
+      ${canAuto ? `<label class="check"><input type="radio" name="fx-source" value="${AUTO_COLOR}" ${source === AUTO_COLOR ? "checked" : ""} /> Automático (colores de todo el espectro, ignora la paleta)</label>` : ""}
+      <p class="hint">${
+        pal
+          ? "Elegí con el círculo qué color usa el efecto. Podés editar los 7 y guardarlos para usarlos después."
+          : "Leé la configuración en Dispositivo para ver y editar tus colores."
+      }</p>
+    </fieldset>`;
+}
+
+function updatePaletteMode() {
+  const auto = selectedSource() === AUTO_COLOR;
+  $("#fx-palette").classList.toggle("auto", auto);
+}
+
+const selectedSource = () => {
+  const el = document.querySelector<HTMLInputElement>("input[name=fx-source]:checked");
+  return el ? Number(el.value) : undefined;
+};
 
 function decodeConfigFor(cfg: Uint8Array, mode: number) {
   const copy = cfg.slice();
@@ -267,24 +302,30 @@ async function applyLight(fx: Effect) {
   await run(async () => {
     try {
       const cfg = await hid.query(Cmd.config, 0x01, waking);
-      const multi = document.querySelector<HTMLInputElement>("#fx-multi");
       const next = withLight(cfg, {
         mode: fx.mode,
         brightness: inputValue("#fx-brightness"),
         speed: inputValue("#fx-speed"),
-        multicolor: multi ? (multi.checked ? PALETTE_CYCLE : 0) : undefined,
+        colorSource: selectedSource(),
       });
       status.textContent = "Escribiendo…";
       await hid.writeBlock(Cmd.setConfig, next);
 
-      // Color: solo si el efecto lo admite y el elegido es distinto del guardado.
-      const picked = document.querySelector<HTMLInputElement>("#fx-color")?.value;
+      // Colores: solo los lugares que se tocaron y que difieren de lo guardado.
+      const edited = new Map<number, Rgb>(
+        [...document.querySelectorAll<HTMLInputElement>("#effect-params input[data-dirty]")].map((el) => [
+          Number(el.dataset.slot),
+          hexToRgb(el.value),
+        ]),
+      );
       let colorsOk = true;
-      if (picked) {
+      if (edited.size) {
         const colors = (await hid.query(Cmd.colors, 0x01, waking)).slice(0, COLOR_LEN);
-        if (rgbToHex(palette(colors, fx.mode)[0]) !== picked.toLowerCase()) {
-          const nextColors = withColor(colors, fx.mode, hexToRgb(picked));
-          status.textContent = "Escribiendo color…";
+        const current = palette(colors, fx.mode);
+        for (const [slot, rgb] of edited) if (rgbToHex(current[slot]) === rgbToHex(rgb)) edited.delete(slot);
+        if (edited.size) {
+          const nextColors = withPaletteSlots(colors, fx.mode, edited);
+          status.textContent = "Escribiendo colores…";
           await hid.writeBlock(Cmd.setColors, colorPayload(nextColors), { lastLen: trimmedLength });
           lastColors = (await hid.query(Cmd.colors, 0x01, waking)).slice(0, COLOR_LEN);
           colorsOk = lastColors.every((b, i) => b === nextColors[i]);

@@ -80,6 +80,14 @@ button {
   cursor: pointer;
 }
 
+input[type="radio"],
+input[type="checkbox"] {
+  padding: 0;
+  margin: 0;
+  border: none;
+  accent-color: var(--accent);
+}
+
 button:hover:not(:disabled) {
   border-color: var(--accent);
 }
@@ -384,14 +392,57 @@ mark {
   border-radius: 2px;
 }
 
-.swatches {
-  display: flex;
-  gap: 4px;
+.palette {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px 4px;
+  margin: 0 0 12px;
 }
 
-.swatches span {
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
+.palette legend {
+  padding: 0 4px;
+  color: var(--muted);
+}
+
+.palette .slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+#effect-params .palette .slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.palette .slot input[type="color"] {
+  width: 36px;
+  height: 28px;
+  padding: 2px;
+  cursor: pointer;
+}
+
+.palette .slot span {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* El lugar elegido se destaca; en modo automático la paleta no se usa y queda atenuada. */
+.palette .slot:has(input[type="radio"]:checked) input[type="color"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.palette.auto .slots {
+  opacity: 0.35;
+}
+
+.palette .slot input[type="color"]:disabled {
+  cursor: not-allowed;
 }
