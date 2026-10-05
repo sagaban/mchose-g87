@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>G87 Configurator</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>MCHOSE G87</h1>
+      <span id="status" class="status off">Desconectado</span>
+      <button id="connect">Conectar</button>
+      <button id="disconnect" hidden>Desconectar</button>
+    </header>
+
+    <p id="unsupported" class="banner error" hidden>
+      Este navegador no soporta WebHID. Usá Chrome, Edge o Brave en escritorio.
+    </p>
+
+    <nav>
+      <button data-tab="device" class="active">Dispositivo</button>
+      <button data-tab="keyboard">Teclado</button>
+      <button data-tab="lighting">Iluminación</button>
+      <button data-tab="packets">Paquetes</button>
+      <button data-tab="console">Consola HID</button>
+    </nav>
+
+    <main>
+      <section id="tab-device" class="tab active">
+        <p class="hint">
+          Conectá el teclado (por cable o con el dongle 2.4G) y tocá <b>Conectar</b>. Acá vas a ver las interfaces
+          HID que expone y qué reports acepta cada una.
+        </p>
+        <div id="kb-state" class="panel" hidden>
+          <h3>Estado del teclado</h3>
+          <dl>
+            <dt>Teclado</dt><dd id="st-awake">—</dd>
+            <dt>Batería</dt><dd id="st-battery">— <span class="hint">(llega sola cada tanto)</span></dd>
+            <dt>Versión</dt><dd id="st-version" class="mono">—</dd>
+          </dl>
+          <p>
+            <button id="read-version">Leer versión</button>
+            <button id="read-config" class="primary">Leer configuración</button>
+          </p>
+          <div id="config-out"></div>
+        </div>
+        <div id="device-info"></div>
+      </section>
+
+      <section id="tab-keyboard" class="tab">
+        <div id="board" class="board"></div>
+        <div id="key-detail" class="panel hint">Tocá una tecla para ver su código y sus offsets en los paquetes.</div>
+      </section>
+
+      <section id="tab-lighting" class="tab">
+        <p class="banner warn">
+          Todavía no sabemos qué paquete cambia la iluminación, así que <b>Aplicar</b> está deshabilitado. Los efectos y
+          parámetros salen del XML oficial.
+        </p>
+        <div class="lighting">
+          <div id="effects" class="effects"></div>
+          <div id="effect-params" class="panel"></div>
+        </div>
+      </section>
+
+      <section id="tab-packets" class="tab">
+        <p class="hint">
+          Paquetes por defecto guardados en <code>G87_data.ini</code>. La cabecera es una hipótesis: report ID, comando,
+          argumento y longitud útil.
+        </p>
+        <div id="packets"></div>
+      </section>
+
+      <section id="tab-console" class="tab">
+        <div class="panel">
+          <h3>Leer (seguro)</h3>
+          <p class="hint">Un GET_REPORT pide datos al teclado sin modificar nada.</p>
+          <label>Feature report ID <input id="read-id" value="06" size="4" /></label>
+          <button id="read-feature">Leer feature report</button>
+        </div>
+
+        <div class="panel danger">
+          <h3>Enviar (riesgoso)</h3>
+          <label class="check"><input type="checkbox" id="write-enabled" /> Habilitar escritura al teclado</label>
+          <div id="write-controls" class="disabled">
+            <label>Tipo
+              <select id="send-kind">
+                <option value="output">Output report</option>
+                <option value="feature">Feature report</option>
+              </select>
+            </label>
+            <label>Report ID <input id="send-id" value="13" size="4" /></label>
+            <label class="grow">Bytes (hex) <input id="send-bytes" placeholder="00 00 00 …" /></label>
+            <button id="send">Enviar</button>
+          </div>
+          <p class="hint">Hay que tocar Enviar dos veces para confirmar. Nunca mandes comandos de firmware.</p>
+        </div>
+
+        <div class="log-head">
+          <h3>Log</h3>
+          <button id="log-copy">Copiar</button>
+          <button id="log-clear">Limpiar</button>
+        </div>
+        <pre id="log"></pre>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
