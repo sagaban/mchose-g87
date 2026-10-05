@@ -3,6 +3,10 @@ import {
   Cmd,
   configDiff,
   decodeConfig,
+  ConfigOffset,
+  LEVEL_MAX,
+  PALETTE_CYCLE,
+  withLight,
   parseNotice,
   decodeKeyValue,
   effects,
@@ -14,7 +18,6 @@ import {
   packets,
   parseHeader,
   parseHexInput,
-  step,
   type Effect,
   type Key,
 } from "./protocol";
@@ -43,6 +46,7 @@ function renderConnection() {
   $("#connect").hidden = on;
   $("#disconnect").hidden = !on;
   $("#kb-state").hidden = !hid.find("output", VENDOR_REPORT);
+  renderEffects();
 
   $("#device-info").innerHTML = hid.devices
     .map((d) => {
@@ -76,7 +80,10 @@ async function run(fn: () => Promise<unknown>) {
   } catch (e) {
     appendLog({ time: new Date(), dir: "error", text: e instanceof Error ? e.message : String(e) });
   }
-  renderConnection();
+  // Acceso desde la consola del navegador para depurar el protocolo.
+if (import.meta.env.DEV) Object.assign(window, { g87: { hid, Cmd, withLight, decodeConfig } });
+
+renderConnection();
 }
 
 $("#connect").addEventListener("click", () => run(() => hid.request()));
@@ -117,6 +124,8 @@ $("#read-version").addEventListener("click", () =>
 $("#read-config").addEventListener("click", () =>
   run(async () => {
     const cfg = await hid.query(Cmd.config, 0x01, waking);
+    lastConfig = cfg;
+    renderEffects();
     const diff = configDiff(cfg);
     const changed = new Set(diff.map((d) => d.offset));
     const lines = [];
@@ -132,7 +141,7 @@ $("#read-config").addEventListener("click", () =>
         <dt>Efecto</dt><dd>${esc(c.effect?.name ?? "desconocido")} <span class="hint mono">(modo ${c.mode})</span></dd>
         <dt>Brillo</dt><dd>${c.brightness} / 4</dd>
         <dt>Velocidad</dt><dd>${c.speed} / 4</dd>
-        <dt>Color</dt><dd class="mono">${c.color} <span class="hint">(¿7 = multicolor?)</span></dd>
+        <dt>Color</dt><dd>${c.multicolor === 7 ? "Recorre la paleta" : `Un color (${c.multicolor})`}</dd>
       </dl>
       <p class="hint">${cfg.length} bytes. Resaltado: distinto del valor de fábrica (${diff.length} bytes).</p>
       <pre class="hexdump">${lines.join("\n")}</pre>
@@ -183,6 +192,8 @@ function renderKey(key: Key) {
 // ---------- Iluminación ----------
 
 let selectedEffect: Effect = effects[0];
+/** Última configuración leída del teclado, para precargar los controles. */
+let lastConfig: Uint8Array | null = null;
 
 function renderEffects() {
   $("#effects").innerHTML = "";
@@ -198,18 +209,68 @@ function renderEffects() {
   }
 
   const fx = selectedEffect;
-  const range = (label: string, s: number) =>
-    `<label>${label} <input type="range" min="0" max="${s * 4}" step="1" value="${s * 2}" /></label>`;
+  const current = lastConfig && fx.mode ? decodeConfigFor(lastConfig, fx.mode) : null;
+  const range = (id: string, label: string, value: number) =>
+    `<label>${label} <input id="${id}" type="range" min="0" max="${LEVEL_MAX}" step="1" value="${value}" />
+      <output class="mono">${value}</output></label>`;
   $("#effect-params").innerHTML = `
     <h3>${esc(fx.name)}</h3>
-    <p class="hint mono">ModelCode ${fx.mode} · NameCode ${fx.nameCode}</p>
-    ${fx.brightness ? range("Brillo", step.brightness) : ""}
-    ${fx.speed ? range("Velocidad", step.speed) : ""}
-    ${fx.color ? `<label>Color <input type="color" value="#2f6fde" /></label>` : ""}
-    ${fx.multicolor ? `<label class="check"><input type="checkbox" /> Multicolor</label>` : ""}
-    ${!fx.brightness && !fx.speed && !fx.color ? `<p class="hint">Este efecto no tiene parámetros.</p>` : ""}
-    <button class="primary" disabled title="Falta capturar el comando de iluminación">Aplicar</button>`;
+    <p class="hint mono">Modo ${fx.mode}${current ? "" : " · leé la configuración para ver los valores actuales"}</p>
+    ${fx.brightness ? range("fx-brightness", "Brillo", current?.brightness ?? LEVEL_MAX) : ""}
+    ${fx.speed ? range("fx-speed", "Velocidad", current?.speed ?? 2) : ""}
+    ${fx.multicolor ? `<label class="check"><input id="fx-multi" type="checkbox" ${current?.multicolor === PALETTE_CYCLE ? "checked" : ""} /> Recorrer la paleta de colores</label>` : ""}
+    ${!fx.brightness && !fx.speed && !fx.multicolor ? `<p class="hint">Este efecto no tiene parámetros.</p>` : ""}
+    <p><button id="fx-apply" class="primary" ${hid.find("output", VENDOR_REPORT) ? "" : "disabled"}>Aplicar</button>
+      <span id="fx-status" class="hint"></span></p>`;
+
+  $("#effect-params").querySelectorAll<HTMLInputElement>("input[type=range]").forEach((r) =>
+    r.addEventListener("input", () => (r.nextElementSibling!.textContent = r.value)),
+  );
+  $("#fx-apply").addEventListener("click", () => applyLight(fx));
 }
+
+function decodeConfigFor(cfg: Uint8Array, mode: number) {
+  const copy = cfg.slice();
+  copy[ConfigOffset.effect] = mode;
+  return decodeConfig(copy);
+}
+
+const inputValue = (sel: string) => {
+  const el = document.querySelector<HTMLInputElement>(sel);
+  return el ? Number(el.value) : undefined;
+};
+
+/** Lee, modifica solo los bytes del efecto, escribe el bloque entero y verifica releyendo. */
+async function applyLight(fx: Effect) {
+  const status = $("#fx-status");
+  const btn = $<HTMLButtonElement>("#fx-apply");
+  btn.disabled = true;
+  status.textContent = "Leyendo configuración…";
+  await run(async () => {
+    try {
+      const cfg = await hid.query(Cmd.config, 0x01, waking);
+      const multi = document.querySelector<HTMLInputElement>("#fx-multi");
+      const next = withLight(cfg, {
+        mode: fx.mode,
+        brightness: inputValue("#fx-brightness"),
+        speed: inputValue("#fx-speed"),
+        multicolor: multi ? (multi.checked ? PALETTE_CYCLE : 0) : undefined,
+      });
+      status.textContent = "Escribiendo…";
+      await hid.writeBlock(Cmd.setConfig, next);
+      status.textContent = "Verificando…";
+      lastConfig = await hid.query(Cmd.config, 0x01, waking);
+      const ok = lastConfig.every((b, i) => b === next[i]);
+      status.textContent = ok ? "Aplicado ✓" : "El teclado guardó otros valores: revisá la consola";
+    } catch (e) {
+      status.textContent = "Error: ver la consola HID";
+      throw e;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
 renderEffects();
 
 // ---------- Paquetes ----------
@@ -304,5 +365,11 @@ sendBtn.addEventListener("click", () => {
     else await hid.sendOutput(id, data);
   });
 });
+
+// Acceso desde la consola del navegador para depurar el protocolo.
+if (import.meta.env.DEV) Object.assign(window, { g87: { hid, Cmd, withLight, decodeConfig } });
+
+// Acceso desde la consola del navegador para depurar el protocolo.
+if (import.meta.env.DEV) Object.assign(window, { g87: { hid, Cmd, withLight, decodeConfig } });
 
 renderConnection();

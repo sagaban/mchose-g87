@@ -96,12 +96,18 @@ export function decodeKeyValue(v: number) {
 
 // ---------- Canal vendor 0x13 (modo dongle) ----------
 
-/** Comandos de lectura confirmados contra el teclado (respuesta multi-paquete). */
+/**
+ * Comandos del canal vendor. Lectura = [cmd, 0x01]; escritura = bloque en pedazos de 14 bytes.
+ * Confirmados contra el teclado: version, config. El resto según
+ * github.com/HoanNguyen1711/mchose-g87-controller-ubuntu (sacado del driver web oficial).
+ */
 export const Cmd = {
   version: 0x05,
-  config: 0x44, // = paquete KeyboradConfig (0x84 por cable), 128 bytes
-  diyColors: 0x42, // ¿= DiyColorMap (0x86)? sin probar
-  baseColors: 0x49, // ¿= BaseColorMap (0x8A)? sin probar
+  config: 0x44, // lee el bloque de 128 bytes (= KeyboradConfig, 0x84 por cable)
+  setConfig: 0x04,
+  colors: 0x49, // paleta: 7 colores RGB por efecto en 21·modo, 490 bytes
+  setColors: 0x09,
+  battery: 0x4a, // [nivel %][cargando<<4 | lleno]
 } as const;
 
 /** Aviso asincrónico: [0a][01][00][04][tipo][valor][extra]… */
@@ -135,7 +141,8 @@ export function configDiff(current: Uint8Array) {
  * Bloque de configuración (128 bytes, comando 0x44 / 0x84). Confirmado contra el teclado:
  *   [10]              efecto activo (= ModelCode del XML)
  *   [0x38 + 2·n]      brillo del efecto n (0–4)
- *   [0x38 + 2·n + 1]  nibble alto: velocidad (0–4) · nibble bajo: ¿color? (7 = multicolor)
+ *   [0x38 + 2·n + 1]  nibble alto: velocidad (0–4) · nibble bajo: modo de color
+ *                     (0 = un color de la paleta, 7 = recorre los 7 colores)
  */
 export const ConfigOffset = { effect: 10, effectParams: 0x38 } as const;
 
@@ -147,6 +154,30 @@ export function decodeConfig(cfg: Uint8Array) {
     mode,
     brightness: cfg[at],
     speed: cfg[at + 1] >> 4,
-    color: cfg[at + 1] & 0x0f,
+    multicolor: cfg[at + 1] & 0x0f,
   };
+}
+
+export const LEVEL_MAX = 4;
+export const PALETTE_CYCLE = 7;
+
+export interface LightChange {
+  mode: number;
+  brightness?: number;
+  speed?: number;
+  multicolor?: number;
+}
+
+/** Copia del bloque con el efecto activo cambiado; solo toca los bytes de ese efecto. */
+export function withLight(cfg: Uint8Array, change: LightChange) {
+  const out = cfg.slice();
+  const clamp = (n: number) => Math.max(0, Math.min(LEVEL_MAX, n));
+  out[ConfigOffset.effect] = change.mode;
+  const at = ConfigOffset.effectParams + 2 * change.mode;
+  if (change.mode === 0) return out; // "Off" no tiene parámetros
+  if (change.brightness !== undefined) out[at] = clamp(change.brightness);
+  const speed = change.speed !== undefined ? clamp(change.speed) : out[at + 1] >> 4;
+  const multi = change.multicolor ?? out[at + 1] & 0x0f;
+  out[at + 1] = (speed << 4) | (multi & 0x0f);
+  return out;
 }

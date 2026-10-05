@@ -196,7 +196,53 @@ export class Hid {
       d.removeEventListener("inputreport", onReport);
     }
   }
+
+  /**
+   * Escritura por el canal vendor 0x13: el bloque va en pedazos de 14 bytes
+   * [cmd][total][idx][len][datos…] y el teclado confirma cada uno devolviendo cmd + idx.
+   * Sin confirmación se reintenta el pedazo; si falla 3 veces se aborta.
+   */
+  async writeBlock(cmd: number, payload: Uint8Array, { lastLen = (c: Uint8Array) => c.length } = {}) {
+    const d = this.find("output", VENDOR_REPORT);
+    if (!d) throw new Error("No hay canal vendor 0x13 (¿conectado por cable?)");
+
+    const chunks: Uint8Array[] = [];
+    for (let i = 0; i < payload.length; i += CHUNK) chunks.push(payload.slice(i, i + CHUNK));
+
+    for (const [idx, chunk] of chunks.entries()) {
+      const len = idx === chunks.length - 1 ? lastLen(chunk) : CHUNK;
+      const packet = buildVendorPacket(cmd, chunks.length, [idx, len, ...chunk]);
+      let acked = false;
+      for (let attempt = 0; attempt < 3 && !acked; attempt++) {
+        const ack = this.waitFor(d, (b) => b[0] === cmd && b[2] === idx, 500);
+        await this.sendOutput(VENDOR_REPORT, packet);
+        acked = await ack;
+      }
+      if (!acked) throw new Error(`El teclado no confirmó el pedazo ${idx + 1}/${chunks.length} del comando 0x${cmd.toString(16)}`);
+    }
+  }
+
+  /** Espera un input report 0x13 válido que cumpla `match`. Resuelve false al vencer el plazo. */
+  private waitFor(d: HIDDevice, match: (b: Uint8Array) => boolean, ms: number) {
+    return new Promise<boolean>((resolve) => {
+      const onReport = (e: Event) => {
+        const ev = e as HIDInputReportEvent;
+        const b = new Uint8Array(ev.data.buffer, ev.data.byteOffset, ev.data.byteLength);
+        if (ev.reportId === VENDOR_REPORT && validChecksum(b) && match(b)) finish(true);
+      };
+      const timer = setTimeout(() => finish(false), ms);
+      const finish = (ok: boolean) => {
+        clearTimeout(timer);
+        d.removeEventListener("inputreport", onReport);
+        resolve(ok);
+      };
+      d.addEventListener("inputreport", onReport);
+    });
+  }
 }
+
+/** Bytes de datos por paquete en el canal vendor. */
+const CHUNK = 14;
 
 export const VENDOR_REPORT = 0x13;
 
