@@ -14,6 +14,7 @@ nada, no necesita drivers y no se conecta a ningún servidor.
 - **Batería:** porcentaje y si está cargando, en el encabezado.
 - **Remapeo de teclas:** en las capas Default, Fn y Fn2; cualquier tecla puede ser otra tecla, un modificador o una
   función multimedia, y se puede volver a la asignación de fábrica.
+- **Color por tecla:** en el efecto Self-define, el teclado dibujado con el color de cada tecla para pintarlas.
 - **Macros:** lee las macros guardadas en el teclado (y qué tecla usa cada una), graba nuevas, regraba o borra
   existentes conservando las demás (al borrar, corrige los índices en las teclas), y las asigna a una tecla con su
   modo de reproducción.
@@ -72,9 +73,11 @@ checksum = (0x13 + suma de los 18 bytes anteriores) & 0xFF
 | Batería: `[nivel %][estado]` | `0x4A` | — | 2 bytes |
 | Mapa de teclas de una capa | `0x41` | `0x01` | 504 bytes (512 con la cola `5A A5` al escribir) |
 | Memoria de macros, por páginas | `0x43` | `0x03` | páginas de 512 bytes |
+| Color por tecla: tablas R, G, B de 126 | `0x42` | `0x02` | 378 bytes (posición = la del mapa de teclas) |
 
 **Configuración (128 bytes):**
 
+- Offset `9`: `lightType`, `1` para los efectos con color por tecla (19, 21), `0` para el resto.
 - Offset `10`: efecto activo (número de modo, ver `src/data/g87.json`).
 - Offset `27`: modo del sistema, `00` = Windows, `02` = Mac (lo mismo que Fn+W / Fn+E). Cambiar de modo no toca las
   capas: el firmware intercambia Win/Alt y las F1–F12 al vuelo.

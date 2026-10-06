@@ -38,6 +38,8 @@ export const [config, setConfig] = createSignal<Uint8Array | null>(null);
 export const [colors, setColors] = createSignal<Uint8Array | null>(null);
 export const [layers, setLayers] = createStore<Record<number, Uint8Array | undefined>>({});
 export const [macroMem, setMacroMem] = createSignal<Uint8Array | null>(null);
+/** Colores por tecla (efecto Self-define): tablas R, G, B. */
+export const [diyColors, setDiyColors] = createSignal<Uint8Array | null>(null);
 export const macros = (): Macro[] | null => {
   const mem = macroMem();
   return mem ? parseMacros(mem) : null;
@@ -86,7 +88,7 @@ hid.onLog((e) => {
   if (!n) return setAwake(true); // cualquier respuesta prueba que está despierto
   if (n.kind === "awake") {
     setAwake(n.awake);
-    if (n.awake) refreshBattery();
+    if (n.awake) autoRead();
   }
   if (n.kind === "battery") setConn("battery", n.battery);
 });
@@ -100,6 +102,9 @@ function syncDevices() {
     // Por cable el teclado no se duerme.
     if (device.wired()) setConn("awake", true);
     if (!hid.devices.length) {
+      // Al reconectar se vuelve a leer todo (puede ser otra conexión o haber cambiado desde el teclado).
+      setConfig(null);
+      setColors(null);
       setConn("battery", null);
       setConn("awake", null);
       setConn("waiting", false);
@@ -122,22 +127,37 @@ export async function refreshBattery({ timeoutMs = 5000 } = {}) {
   }
 }
 
-export const connect = () => run(() => hid.request()).then(() => refreshBattery());
+/** Lectura automática al conectar o despertar: sin esperar (si duerme, se reintenta al despertar). */
+let autoReading = false;
+async function autoRead() {
+  if (autoReading || !hasVendorChannel()) return;
+  autoReading = true;
+  try {
+    await refreshBattery();
+    if (!config()) await readConfig({ timeoutMs: 5000 });
+  } catch {
+    // Dormido: el aviso de "despierto" vuelve a llamar.
+  } finally {
+    autoReading = false;
+  }
+}
+
+export const connect = () => run(() => hid.request()).then(autoRead);
 export const disconnect = () => run(() => hid.close());
 
 if (hid.supported) {
   hid.watch(() => {
     syncDevices();
-    if (hid.devices.length) refreshBattery();
+    if (hid.devices.length) autoRead();
   });
-  run(() => hid.restore()).then(() => refreshBattery());
+  run(() => hid.restore()).then(autoRead);
 }
 
 // ---------- Lecturas ----------
 
-export const readConfig = async () => {
-  const cfg = await device.readConfig(waking);
-  const pal = await device.readColors(waking);
+export const readConfig = async (w: { timeoutMs?: number; onSlow?: () => void } = waking) => {
+  const cfg = await device.readConfig(w);
+  const pal = await device.readColors(w);
   batch(() => {
     setConfig(cfg);
     setColors(pal);

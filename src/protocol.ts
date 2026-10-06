@@ -110,6 +110,8 @@ export const Cmd = {
   battery: 0x4a, // [nivel %][estado]
   keymap: 0x41, // args [0x00, capa<<4]; 4 bytes por tecla (= paquete 0x83 por cable)
   setKeymap: 0x01, // byte de largo = capa<<4 | largo
+  diyColors: 0x42, // colores por tecla: 378 bytes (R, G, B de 126)
+  setDiyColors: 0x02,
   macros: 0x43, // args [0x00, página<<4]; páginas de 512 bytes de la memoria de macros
   setMacros: 0x03, // una tanda por página de 512 (índice desde 0), byte de largo = página<<4 | largo
 } as const;
@@ -148,7 +150,11 @@ export function configDiff(current: Uint8Array) {
  *   [0x38 + 2·n + 1]  nibble alto: velocidad (0–4) · nibble bajo: origen del color
  *                     (0–6 = ese lugar de la paleta, 7 = colores automáticos de todo el espectro)
  */
-export const ConfigOffset = { effect: 10, osMode: 27, effectParams: 0x38 } as const;
+/**
+ * Offsets del bloque de configuración. Nombres según el driver web oficial (rateVal, latencySwitch, lightType,
+ * lightMode, winKeySwitch, sleepTimeVal, macSwitch); los confirmados contra el teclado son effect, osMode y los pares.
+ */
+export const ConfigOffset = { lightType: 9, effect: 10, osMode: 27, effectParams: 0x38 } as const;
 
 /**
  * Modo del sistema (byte 27 de la configuración; Fn+W / Fn+E). Confirmado contra el teclado: cambiar de modo
@@ -197,6 +203,8 @@ export function withLight(cfg: Uint8Array, change: LightChange) {
   const out = cfg.slice();
   const clamp = (n: number) => Math.max(0, Math.min(LEVEL_MAX, n));
   out[ConfigOffset.effect] = change.mode;
+  // Los efectos con color por tecla (19, 21) van con lightType = 1; el resto, 0 (como el driver oficial).
+  out[ConfigOffset.lightType] = DIY_MODES.includes(change.mode) ? 1 : 0;
   const at = ConfigOffset.effectParams + 2 * change.mode;
   if (change.mode === 0) return out; // "Off" no tiene parámetros
   if (change.brightness !== undefined) out[at] = clamp(change.brightness);
@@ -624,4 +632,31 @@ export function withMacroRemoved(layer: Uint8Array, removed: number) {
     }
   }
   return { layer: out, cleared, shifted };
+}
+
+// ---------- Color por tecla (efecto Self-define; comandos 0x42 / 0x02, por cable 0x86 / 0x06) ----------
+
+/** Tres tablas de 126 bytes (R, G y B); la posición de cada tecla es la misma que en el mapa de teclas. */
+export const DIY_SLOTS = 126;
+export const DIY_LEN = DIY_SLOTS * 3;
+/** Efectos que usan los colores por tecla (el driver oficial los muestra para 19 y 21). */
+export const DIY_MODES = [19, 21];
+
+export const diySlot = (key: Key) => (key.keypos - 8) / 4;
+
+export function diyColor(data: Uint8Array, key: Key): Rgb {
+  const i = diySlot(key);
+  return [data[i], data[DIY_SLOTS + i], data[2 * DIY_SLOTS + i]];
+}
+
+/** Copia de las tablas con el color `rgb` en las teclas dadas. */
+export function withDiyColor(data: Uint8Array, targets: Key[], rgb: Rgb) {
+  const out = data.slice(0, DIY_LEN);
+  for (const key of targets) {
+    const i = diySlot(key);
+    out[i] = rgb[0];
+    out[DIY_SLOTS + i] = rgb[1];
+    out[2 * DIY_SLOTS + i] = rgb[2];
+  }
+  return out;
 }

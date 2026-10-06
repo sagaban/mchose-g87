@@ -4,6 +4,7 @@ import { VENDOR_REPORT, type Hid } from "./hid";
 import {
   Cmd,
   COLOR_LEN,
+  DIY_LEN,
   colorPayload,
   KEYMAP_LEN,
   keymapPayload,
@@ -28,6 +29,8 @@ const WIRED = {
   keymap: { read: 0x83, write: 0x03, header: (layer: number) => [layer, 0x00, 0x01, 0x00, 0xf8, 0x01] },
   macros: { read: 0x85, write: 0x05 },
   battery: { read: 0x87, header: [0x00, 0x00, 0x01, 0x00, 0x02, 0x00] },
+  // Colores por tecla: se leen 378 bytes (0x17A) y el driver escribe con largo 0x180, como en el INI.
+  diy: { read: 0x86, write: 0x06, readHeader: [0x00, 0x00, 0x01, 0x00, 0x7a, 0x01], writeHeader: [0x00, 0x00, 0x01, 0x00, 0x80, 0x01] },
   version: { read: 0x82, header: [0x01, 0x00, 0x01, 0x00, 0x06, 0x00] },
 };
 
@@ -94,6 +97,18 @@ export function createDevice(hid: Hid) {
         } else await hid.writeBlock(Cmd.setMacros, chunk, { lenTag: page << 4 });
       }
     },
+
+    readDiyColors: async (w: WaitOptions = {}) =>
+      (wired()
+        ? await hid.wiredRead(WIRED.diy.read, WIRED.diy.readHeader)
+        : await hid.query(Cmd.diyColors, 0x01, w)
+      ).slice(0, DIY_LEN),
+
+    /** Las tres tablas (R, G, B) de 126 bytes. Por el receptor van en 27 pedazos de 14. */
+    writeDiyColors: (data: Uint8Array) =>
+      wired()
+        ? hid.wiredWrite(WIRED.diy.write, WIRED.diy.writeHeader, data.slice(0, DIY_LEN))
+        : hid.writeBlock(Cmd.setDiyColors, data.slice(0, DIY_LEN)),
 
     readBattery: (w: WaitOptions = {}) =>
       wired() ? hid.wiredRead(WIRED.battery.read, WIRED.battery.header) : hid.query(Cmd.battery, 0x01, w),

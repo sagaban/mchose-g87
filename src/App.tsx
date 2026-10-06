@@ -1,5 +1,5 @@
-import { BatteryCharging, BatteryFull, BatteryLow, BatteryMedium, Keyboard, Moon, Plug, Unplug } from "lucide-solid";
-import { Match, Show, Switch } from "solid-js";
+import { BatteryCharging, BatteryFull, BatteryLow, BatteryMedium, Keyboard, Moon, Plug, RefreshCw, Unplug } from "lucide-solid";
+import { createSignal, Match, Show, Switch } from "solid-js";
 import { css } from "styled-system/css";
 import { Box, Container, HStack, Stack } from "styled-system/jsx";
 import * as Alert from "~/components/ui/alert";
@@ -7,7 +7,29 @@ import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Heading } from "~/components/ui/heading";
 import * as Tabs from "~/components/ui/tabs";
-import { conn, connect, connected, disconnect, hid } from "./state";
+import { conn, connect, connected, disconnect, hasVendorChannel, hid, readConfig, run } from "./state";
+
+/** Lee configuración y paletas del teclado (lo que usan Dispositivo e Iluminación). */
+function ReadButton() {
+  const [busy, setBusy] = createSignal(false);
+  return (
+    <Show when={hasVendorChannel()}>
+      <Button
+        size="sm"
+        variant="outline"
+        loading={busy()}
+        title="Leer configuración y colores del teclado"
+        onClick={async () => {
+          setBusy(true);
+          await run(() => readConfig());
+          setBusy(false);
+        }}
+      >
+        <RefreshCw /> Leer del teclado
+      </Button>
+    </Show>
+  );
+}
 import ConsoleTab from "./tabs/ConsoleTab";
 import DeviceTab from "./tabs/DeviceTab";
 import KeyboardTab from "./tabs/KeyboardTab";
@@ -85,6 +107,7 @@ export default function App() {
             <HStack gap="2" flexWrap="wrap">
               <BatteryBadge />
               <StatusBadge />
+              <ReadButton />
               <Show
                 when={connected()}
                 fallback={

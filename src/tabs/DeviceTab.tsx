@@ -7,7 +7,7 @@ import OsModeSwitch from "~/components/OsModeSwitch";
 import Shortcuts from "~/components/Shortcuts";
 import { describe, deviceLabel } from "~/hid";
 import { AUTO_COLOR, configDiff, decodeConfig, hex, hexBytes, parseBattery } from "~/protocol";
-import { config, conn, device, hasVendorChannel, readConfig, run, setConn, waking } from "~/state";
+import { config, conn, device, hasVendorChannel, run, setConn, waking } from "~/state";
 
 
 const table = css({
@@ -39,9 +39,6 @@ function KeyboardState() {
           </Button>
           <Button size="sm" variant="outline" onClick={() => run(async () => setConn("version", await device.readVersion(waking)))}>
             Leer versión
-          </Button>
-          <Button size="sm" colorPalette="blue" onClick={() => run(readConfig)}>
-            Leer configuración
           </Button>
         </HStack>
       }

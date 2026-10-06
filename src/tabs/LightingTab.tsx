@@ -2,6 +2,7 @@ import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { css, cx } from "styled-system/css";
 import { Grid, HStack, Stack } from "styled-system/jsx";
 import { muted, Panel } from "~/components/common";
+import DiyEditor from "~/components/DiyEditor";
 import { Button } from "~/components/ui/button";
 import * as RadioGroup from "~/components/ui/radio-group";
 import * as Slider from "~/components/ui/slider";
@@ -10,6 +11,7 @@ import {
   ConfigOffset,
   decodeConfig,
   DEFAULT_PALETTE,
+  DIY_MODES,
   effects,
   hexToRgb,
   LEVEL_MAX,
@@ -149,7 +151,7 @@ export default function LightingTab() {
 
       <Panel
         title={selected().name}
-        description={config() ? `Modo ${selected().mode}` : "Leé la configuración en Dispositivo para ver tus valores actuales."}
+        description={config() ? `Modo ${selected().mode}` : "Tocá «Leer del teclado» (arriba) para ver tus valores actuales."}
       >
         <Stack gap="6">
           <Show when={selected().brightness}>
@@ -159,7 +161,8 @@ export default function LightingTab() {
             <Level label="Velocidad" value={speed()} onChange={setSpeed} />
           </Show>
 
-          <Show when={selected().color || selected().multicolor}>
+          {/* En Self-define los colores salen de cada tecla, no de la paleta. */}
+          <Show when={(selected().color || selected().multicolor) && !DIY_MODES.includes(selected().mode)}>
             <Stack gap="3" borderWidth="1px" borderColor="border" borderRadius="l3" p="3">
               <span class={css({ fontWeight: "medium", textStyle: "sm" })}>Color</span>
               <RadioGroup.Root value={String(source())} onValueChange={(d) => d.value && setSource(Number(d.value))} colorPalette="blue">
@@ -215,12 +218,16 @@ export default function LightingTab() {
               <p class={muted}>
                 {colors()
                   ? "Elegí con el círculo qué color usa el efecto. Podés editar los 7 y guardarlos para usarlos después."
-                  : "Leé la configuración en Dispositivo para ver y editar tus colores."}
+                  : "Tocá «Leer del teclado» (arriba) para ver y editar tus colores."}
               </p>
             </Stack>
           </Show>
 
-          <Show when={!selected().brightness && !selected().speed && !selected().color && !selected().multicolor}>
+          <Show when={DIY_MODES.includes(selected().mode)}>
+            <DiyEditor />
+          </Show>
+
+          <Show when={!selected().brightness && !selected().speed && !selected().color && !selected().multicolor && !DIY_MODES.includes(selected().mode)}>
             <p class={muted}>Este efecto no tiene parámetros.</p>
           </Show>
 
