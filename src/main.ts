@@ -20,10 +20,21 @@ import {
   keyAssignment,
   keymapPayload,
   withAssignment,
+  parseMacros,
+  buildMacros,
+  macroMemoryEnd,
+  describeMacroEvent,
+  macroKeyKind,
+  MACRO_PAGE,
+  MACRO_MODES,
+  MOD_KEY_BY_CODE,
+  type Macro,
+  type MacroEvent,
   HID_BY_CODE,
   MOD_BY_CODE,
   modsFromEvent,
   type Assignment,
+  type AssignmentOption,
   DEFAULT_PALETTE,
   type Rgb,
   parseNotice,
@@ -102,7 +113,7 @@ async function run(fn: () => Promise<unknown>) {
     appendLog({ time: new Date(), dir: "error", text: e instanceof Error ? e.message : String(e) });
   }
   // Acceso desde la consola del navegador para depurar el protocolo.
-if (import.meta.env.DEV) Object.assign(window, { g87: { hid, Cmd, withLight, decodeConfig, withPaletteSlots, colorPayload, trimmedLength, palette } });
+if (import.meta.env.DEV) Object.assign(window, { g87: { hid, Cmd, withLight, decodeConfig, withPaletteSlots, colorPayload, trimmedLength, palette, parseMacros, buildMacros, macroMemoryEnd, describeMacroEvent } });
 
 renderConnection();
 }
@@ -236,6 +247,7 @@ $("#layers").querySelectorAll<HTMLInputElement>("input").forEach((el) =>
   el.addEventListener("change", () => {
     currentLayer = Number(el.value);
     renderBoard();
+    renderMacros(); // muestra qué tecla usa cada macro
     if (selectedKey) renderKey(selectedKey);
   }),
 );
@@ -269,17 +281,22 @@ function renderBoard() {
     if (!layer) {
       el.textContent = key.label;
       el.title = key.id;
-      el.classList.remove("remapped");
+      el.classList.remove("remapped", "unassigned");
       continue;
     }
     const a = keyAssignment(layer, key);
     const text = describeAssignment(a);
-    el.textContent = currentLayer === 0 || text !== "—" ? text : "";
-    el.title = `${key.label}: ${text}`;
+    // En Fn/Fn2 una tecla sin asignar no hace nada: se muestra su nombre atenuado para ubicarla.
+    const empty = currentLayer !== 0 && text === "—";
+    el.textContent = empty ? key.label : text;
+    el.classList.toggle("unassigned", empty);
+    el.title = `${key.label}: ${empty ? "sin asignar en esta capa" : text}`;
     el.classList.toggle("remapped", !sameAssignment(a, factoryAssignment(key, currentLayer)));
   }
   $("#layer-status").textContent = layer
-    ? "Resaltadas: distintas de fábrica."
+    ? currentLayer === 0
+      ? "Resaltadas: distintas de fábrica."
+      : "Resaltadas: distintas de fábrica. Punteadas: sin asignar en esta capa (se pueden asignar)."
     : `Capa ${LAYERS[currentLayer].name} sin leer.`;
 }
 
@@ -297,7 +314,20 @@ $("#read-layer").addEventListener("click", () =>
   }),
 );
 
-const optionGroups = [...new Set(ASSIGNMENT_OPTIONS.map((o) => o.group))];
+/** Modo de reproducción elegido para asignar macros. */
+let macroMode: number = MACRO_MODES[0].mode;
+
+/** Opciones fijas más una por macro leída (con el modo elegido). */
+const allOptions = (): AssignmentOption[] => [
+  ...ASSIGNMENT_OPTIONS,
+  ...(lastMacros ?? []).map((m, i) => ({
+    group: "Macros",
+    label: `${i + 1}. ${m.name || "(sin nombre)"}`,
+    value: [3, macroMode, 1, i] as Assignment,
+  })),
+];
+// "Macros" va siempre: si todavía no se leyeron, la pestaña ofrece leerlas.
+const pickerGroups = () => [...new Set([...ASSIGNMENT_OPTIONS.map((o) => o.group), "Macros"])];
 /** Pestaña del selector elegida (se recuerda entre teclas). */
 let pickerGroup = "Teclas";
 /** Asignación elegida en el panel, todavía sin aplicar. */
@@ -327,9 +357,16 @@ function renderKey(key: Key) {
         <button id="key-capture">⌨ Presioná una tecla…</button>
         <input id="key-search" type="search" placeholder="Buscar (F5, vol, shift…)" />
       </div>
-      <div class="picker-tabs">${optionGroups
+      <div class="picker-tabs">${pickerGroups()
         .map((g) => `<button data-group="${g}" class="${g === pickerGroup ? "active" : ""}">${g}</button>`)
         .join("")}</div>
+      <p id="macro-mode-row" class="assign" hidden>
+        <label>Modo
+          <select id="macro-mode">${MACRO_MODES.map(
+            (m) => `<option value="${m.mode}" ${m.mode === macroMode ? "selected" : ""}>${m.label}</option>`,
+          ).join("")}</select>
+        </label>
+      </p>
       <div id="picker-grid" class="picker-grid"></div>
     </div>
     <p class="assign">
@@ -346,12 +383,31 @@ function renderKey(key: Key) {
     renderGrid();
   };
 
+  let opts = allOptions();
   const renderGrid = () => {
+    opts = allOptions();
+    $("#macro-mode-row").hidden = pickerGroup !== "Macros";
     const q = $<HTMLInputElement>("#key-search").value.trim().toLowerCase();
     // Con búsqueda se filtra en todas las categorías; sin búsqueda, la pestaña elegida.
-    const list = ASSIGNMENT_OPTIONS.map((o, i) => ({ o, i })).filter(({ o }) =>
+    const list = opts.map((o, i) => ({ o, i })).filter(({ o }) =>
       q ? o.label.toLowerCase().includes(q) : o.group === pickerGroup,
     );
+    if (!q && pickerGroup === "Macros" && !lastMacros) {
+      $("#picker-grid").innerHTML = `<p class="hint">Las macros todavía no se leyeron. <button id="picker-read-macros">Leer macros</button></p>`;
+      $("#picker-read-macros").addEventListener("click", () =>
+        run(async () => {
+          $("#picker-grid").innerHTML = `<p class="hint">Leyendo macros…</p>`;
+          try {
+            lastMacroMem = await readMacroMemory();
+            lastMacros = parseMacros(lastMacroMem);
+            renderMacros();
+          } finally {
+            renderGrid();
+          }
+        }),
+      );
+      return;
+    }
     $("#picker-grid").innerHTML = list.length
       ? list
           .map(({ o, i }) => {
@@ -371,9 +427,15 @@ function renderKey(key: Key) {
     }),
   );
   $("#key-search").addEventListener("input", renderGrid);
+  $("#macro-mode").addEventListener("change", () => {
+    macroMode = Number($<HTMLSelectElement>("#macro-mode").value);
+    // Si ya había una macro elegida, se actualiza su modo.
+    if (pending?.[0] === 3) choose([3, macroMode, 1, pending[3]]);
+    else renderGrid();
+  });
   $("#picker-grid").addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-opt]");
-    if (b) choose(ASSIGNMENT_OPTIONS[Number(b.dataset.opt)].value);
+    if (b) choose(opts[Number(b.dataset.opt)].value);
   });
   $("#key-capture").addEventListener("click", () => (stopCapture ? stopCapture() : startCapture(choose)));
   $("#key-apply").addEventListener("click", () => pending && applyKey(key, pending));
@@ -450,6 +512,220 @@ async function applyKey(key: Key, value: Assignment) {
 }
 
 renderBoard();
+
+// ---------- Macros ----------
+
+/** Macros leídas del teclado; su posición es el índice que usan las teclas ([03][modo][01][índice]). */
+let lastMacros: Macro[] | null = null;
+/** Memoria tal como se leyó, para detectar si cambió antes de escribir. */
+let lastMacroMem: Uint8Array | null = null;
+
+/** Lee las páginas necesarias de la memoria de macros (la tabla dice hasta dónde hay datos). */
+async function readMacroMemory() {
+  const page = (n: number) => hid.query(Cmd.macros, 0x01, { ...waking, args: [0x00, n << 4] });
+  let mem = await page(0);
+  const end = macroMemoryEnd(mem);
+  for (let n = 1; n * MACRO_PAGE < end; n++) mem = new Uint8Array([...mem, ...(await page(n))]);
+  return mem.slice(0, end);
+}
+
+/** Teclas (en las capas ya leídas) que llaman a la macro `idx`. */
+function macroUsage(idx: number) {
+  const uses: string[] = [];
+  for (const [layerId, layer] of layers) {
+    for (const key of keys) {
+      const [type, mode, hi, lo] = keyAssignment(layer, key);
+      if (type === 3 && hi === 1 && lo === idx) {
+        const prefix = layerId === 0 ? "" : `${LAYERS[layerId].name} + `;
+        uses.push(`${prefix}${key.label} (${MACRO_MODES.find((m) => m.mode === mode)?.short ?? mode})`);
+      }
+    }
+  }
+  return uses;
+}
+
+function renderMacros() {
+  const list = $("#macro-list");
+  if (!lastMacros) {
+    list.innerHTML = `<p class="hint">Leé las macros para verlas. Se guardan en el teclado y las llama una tecla asignada en la pestaña Teclado.</p>`;
+    return;
+  }
+  const layersRead = layers.size ? "" : " Leé las capas en la pestaña Teclado para ver qué tecla usa cada una.";
+  $("#macros-status").textContent = `${lastMacros.length} macros · ${lastMacroMem?.length ?? 0} bytes.${layersRead}`;
+  list.innerHTML = lastMacros
+    .map((m, i) => {
+      const uses = macroUsage(i);
+      const ms = m.events.reduce((t, e) => t + e.delay, 0);
+      return `<div class="panel macro">
+        <div class="macro-head">
+          <h3>${i + 1}. ${esc(m.name || "(sin nombre)")}</h3>
+          <span class="hint">${m.events.length} eventos · ${ms} ms</span>
+          <button data-edit="${i}">Regrabar</button>
+        </div>
+        <p class="hint">${uses.length ? `Asignada a: ${esc(uses.join(", "))}` : layers.size ? "No está asignada a ninguna tecla de las capas leídas." : ""}</p>
+        <div class="macro-events">${m.events.map((e) => `<span class="${e.down ? "down" : "up"}" title="${e.delay} ms">${esc(describeMacroEvent(e))}</span>`).join("")}</div>
+      </div>`;
+    })
+    .join("");
+  list.querySelectorAll<HTMLButtonElement>("[data-edit]").forEach((b) =>
+    b.addEventListener("click", () => openMacroEditor(Number(b.dataset.edit))),
+  );
+}
+
+$("#read-macros").addEventListener("click", () =>
+  run(async () => {
+    $("#macros-status").textContent = "Leyendo…";
+    try {
+      lastMacroMem = await readMacroMemory();
+      lastMacros = parseMacros(lastMacroMem);
+    } catch (e) {
+      $("#macros-status").textContent = "No se pudo leer: ver la consola HID";
+      throw e;
+    }
+    renderMacros();
+  }),
+);
+
+$("#new-macro").addEventListener("click", () => openMacroEditor(null));
+
+/** Editor: graba eventos del teclado físico con sus tiempos. `index` null = macro nueva. */
+function openMacroEditor(index: number | null) {
+  if (!lastMacros) {
+    $("#macros-status").textContent = "Primero leé las macros: hay que conservarlas al guardar.";
+    return;
+  }
+  const editing = index === null ? null : lastMacros[index];
+  let events: MacroEvent[] = editing ? editing.events.map((e) => ({ ...e })) : [];
+  let stopRec: (() => void) | null = null;
+  const editor = $("#macro-editor");
+  editor.hidden = false;
+  editor.innerHTML = `
+    <h3>${editing ? `Regrabar ${index! + 1}. ${esc(editing.name)}` : "Nueva macro"}</h3>
+    <p class="assign">
+      <label>Nombre <input id="macro-name" maxlength="15" value="${esc(editing?.name ?? `m${lastMacros.length + 1}`)}" /></label>
+      <label class="check"><input id="macro-fixed" type="checkbox" checked /> Demora fija de</label>
+      <input id="macro-delay" type="number" min="1" max="60000" value="10" style="width: 80px" /> ms
+    </p>
+    <p class="assign">
+      <button id="macro-rec" class="primary">● Grabar</button>
+      <button id="macro-clear">Borrar eventos</button>
+      <span class="hint">Mientras graba, todo lo que tipees queda en la macro (no llega a la página).</span>
+    </p>
+    <div id="macro-preview" class="macro-events"></div>
+    <p class="assign">
+      <button id="macro-save" class="primary">Guardar en el teclado</button>
+      <button id="macro-cancel">Cancelar</button>
+      <span id="macro-status" class="hint"></span>
+    </p>`;
+
+  const preview = () => {
+    $("#macro-preview").innerHTML = events.length
+      ? events.map((e) => `<span class="${e.down ? "down" : "up"}" title="${e.delay} ms">${esc(describeMacroEvent(e))}</span>`).join("")
+      : `<span class="hint">Sin eventos todavía.</span>`;
+  };
+
+  const record = () => {
+    const btn = $("#macro-rec");
+    btn.textContent = "■ Detener";
+    btn.classList.add("armed");
+    let last = 0;
+    const push = (e: KeyboardEvent, down: boolean) => {
+      if (e.repeat) return e.preventDefault();
+      const code = MOD_KEY_BY_CODE[e.code] ?? HID_BY_CODE[e.code];
+      if (!code) return;
+      e.preventDefault();
+      const now = performance.now();
+      // La demora va en el evento anterior: es el tiempo hasta este.
+      if (events.length && last) events[events.length - 1].delay = Math.max(1, Math.round(now - last));
+      last = now;
+      events.push({ down, kind: macroKeyKind(code), code, delay: 10 });
+      preview();
+    };
+    const onDown = (e: KeyboardEvent) => push(e, true);
+    const onUp = (e: KeyboardEvent) => push(e, false);
+    window.addEventListener("keydown", onDown, true);
+    window.addEventListener("keyup", onUp, true);
+    stopRec = () => {
+      window.removeEventListener("keydown", onDown, true);
+      window.removeEventListener("keyup", onUp, true);
+      btn.textContent = "● Grabar";
+      btn.classList.remove("armed");
+      stopRec = null;
+    };
+  };
+
+  $("#macro-rec").addEventListener("click", () => (stopRec ? stopRec() : record()));
+  $("#macro-clear").addEventListener("click", () => {
+    events = [];
+    preview();
+  });
+  $("#macro-cancel").addEventListener("click", () => {
+    stopRec?.();
+    editor.hidden = true;
+  });
+  $("#macro-save").addEventListener("click", async () => {
+    stopRec?.();
+    const name = $<HTMLInputElement>("#macro-name").value.trim();
+    const status = $("#macro-status");
+    if (!name) return void (status.textContent = "Poné un nombre.");
+    if (!events.length) return void (status.textContent = "La macro no tiene eventos.");
+    if ($<HTMLInputElement>("#macro-fixed").checked) {
+      const d = Math.max(1, Math.min(60000, Number($<HTMLInputElement>("#macro-delay").value) || 10));
+      events = events.map((e) => ({ ...e, delay: d }));
+    }
+    await saveMacro(index, { name, events }, status);
+    if (status.textContent?.startsWith("Guardada")) editor.hidden = true;
+  });
+  preview();
+}
+
+/**
+ * Relee la memoria (y aborta si cambió desde la última lectura), reemplaza o agrega la macro,
+ * reescribe la memoria completa conservando las demás y verifica releyendo.
+ */
+async function saveMacro(index: number | null, macro: Macro, status: HTMLElement) {
+  await run(async () => {
+    try {
+      status.textContent = "Leyendo memoria…";
+      const fresh = await readMacroMemory();
+      if (!lastMacroMem || fresh.length !== lastMacroMem.length || fresh.some((b, i) => b !== lastMacroMem![i])) {
+        lastMacroMem = fresh;
+        lastMacros = parseMacros(fresh);
+        renderMacros();
+        status.textContent = "Las macros del teclado cambiaron desde que las leíste: revisá la lista y volvé a guardar.";
+        return;
+      }
+      const macros = parseMacros(fresh);
+      if (index === null) macros.push(macro);
+      else macros[index] = macro;
+      const mem = buildMacros(macros);
+      // La app oficial admite hasta 8 páginas de 512 bytes.
+      if (mem.length > 8 * MACRO_PAGE) {
+        status.textContent = `No entra: ${mem.length} bytes de ${8 * MACRO_PAGE}. Acortá la macro.`;
+        return;
+      }
+      // Cada página es una tanda aparte: índice desde 0, total de la página y la página en el nibble alto
+      // del largo (así lo hace la app de Windows; con índices continuos el teclado descarta la página 1).
+      for (let page = 0; page * MACRO_PAGE < mem.length; page++) {
+        status.textContent = `Escribiendo página ${page + 1}…`;
+        await hid.writeBlock(Cmd.setMacros, mem.slice(page * MACRO_PAGE, (page + 1) * MACRO_PAGE), { lenTag: page << 4 });
+      }
+      status.textContent = "Verificando…";
+      lastMacroMem = await readMacroMemory();
+      lastMacros = parseMacros(lastMacroMem);
+      const ok = lastMacroMem.length === mem.length && lastMacroMem.every((b, i) => b === mem[i]);
+      renderMacros();
+      status.textContent = ok
+        ? `Guardada ✓ como macro ${index === null ? macros.length : index + 1}.`
+        : "El teclado guardó otros datos: revisá la consola";
+    } catch (e) {
+      status.textContent = "Error: ver la consola HID";
+      throw e;
+    }
+  });
+}
+
+renderMacros();
 
 // ---------- Iluminación ----------
 

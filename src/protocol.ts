@@ -110,6 +110,8 @@ export const Cmd = {
   battery: 0x4a, // [nivel %][estado]
   keymap: 0x41, // args [0x00, capa<<4]; 4 bytes por tecla (= paquete 0x83 por cable)
   setKeymap: 0x01, // byte de largo = capa<<4 | largo
+  macros: 0x43, // args [0x00, página<<4]; páginas de 512 bytes de la memoria de macros
+  setMacros: 0x03, // una tanda por página de 512 (índice desde 0), byte de largo = página<<4 | largo
 } as const;
 
 /** Aviso asincrónico: [0a][01][00][04][tipo][valor][extra]… */
@@ -304,8 +306,8 @@ const keyName = (code: number) => EXTRA_KEYS[code] ?? (data.keyNames as Record<s
 
 /**
  * Nombre legible de una asignación [tipo][mods][código alto][código bajo]:
- * tipo 00 = tecla (+ modificadores), 02 = multimedia, 0D = Fn, 03/07/08 = funciones propias del
- * teclado (conexión, sistema, iluminación).
+ * tipo 00 = tecla (+ modificadores), 02 = multimedia, 03 = macro ([03][modo][01][índice]),
+ * 0D = Fn, 07/08 = funciones propias del teclado (sistema, iluminación).
  */
 export function describeAssignment([type, mods, hi, lo]: Assignment): string {
   if (type === 0 && mods === 0 && lo === 0) return "—";
@@ -316,6 +318,7 @@ export function describeAssignment([type, mods, hi, lo]: Assignment): string {
   }
   if (type === 2) return CONSUMER[(hi << 8) | lo] ?? `Multimedia 0x${hex((hi << 8) | lo, 4)}`;
   if (type === 0x0d) return "Fn"; // la tecla Fn de fábrica: 0d 00 00 00
+  if (type === 3 && hi === 1) return `Macro ${lo + 1} · ${MACRO_MODES.find((m) => m.mode === mods)?.short ?? mods}`;
   return `Función ${hexBytes([type, mods, hi, lo])}`;
 }
 
@@ -404,3 +407,105 @@ export const MOD_BY_CODE: Record<string, number> = {
 /** Modificadores apretados durante un evento, como byte HID (izquierdos). */
 export const modsFromEvent = (e: KeyboardEvent) =>
   (e.ctrlKey ? 0x01 : 0) | (e.shiftKey ? 0x02 : 0) | (e.altKey ? 0x04 : 0) | (e.metaKey ? 0x08 : 0);
+
+// ---------- Macros (comandos 0x43 / 0x03) ----------
+
+export const MACRO_PAGE = 512;
+
+/** Modo de reproducción de una macro asignada a una tecla: [03][modo][01][índice]. */
+export const MACRO_MODES = [
+  { mode: 1, short: "una vez", label: "Ejecutar una vez" },
+  { mode: 4, short: "mientras se mantiene", label: "Repetir mientras se mantiene apretada" },
+  { mode: 2, short: "hasta re-apretar", label: "Repetir hasta volver a apretar la tecla" },
+] as const;
+
+export interface MacroEvent {
+  down: boolean;
+  /** 0 = tecla, 1 = tecla "extendida" (modificadores y otras > 0x45), 2 = botón de mouse. */
+  kind: number;
+  code: number;
+  /** Demora en ms después del evento (20 bits). */
+  delay: number;
+}
+
+export interface Macro {
+  name: string;
+  events: MacroEvent[];
+}
+
+/**
+ * Memoria de macros: tabla de [dirección LE][largo LE] por macro y, en cada dirección,
+ * [largo del nombre][nombre UTF-8][eventos de 4 bytes]. Evento: [flags][demora media][demora baja][código],
+ * flags: bit 7 = soltar, bits 4–6 = tipo, bits 0–2 = demora alta.
+ */
+export function parseMacros(mem: Uint8Array): Macro[] {
+  const first = mem[0] | (mem[1] << 8);
+  if (!first || first % 4 || first > mem.length) return [];
+  const macros: Macro[] = [];
+  for (let i = 0; i < first / 4; i++) {
+    const addr = mem[4 * i] | (mem[4 * i + 1] << 8);
+    const len = mem[4 * i + 2] | (mem[4 * i + 3] << 8);
+    if (addr + len > mem.length) break;
+    const nameLen = mem[addr];
+    const name = new TextDecoder().decode(mem.slice(addr + 1, addr + 1 + nameLen));
+    const events: MacroEvent[] = [];
+    for (let at = addr + 1 + nameLen; at + 4 <= addr + len; at += 4) {
+      const [p, b, g, code] = mem.slice(at, at + 4);
+      events.push({ down: !(p & 0x80), kind: (p >> 4) & 7, code, delay: ((p & 7) << 16) | (b << 8) | g });
+    }
+    macros.push({ name, events });
+  }
+  return macros;
+}
+
+/** Bytes usados de la memoria (hasta el final de la última macro). */
+export function macroMemoryEnd(mem: Uint8Array) {
+  const first = mem[0] | (mem[1] << 8);
+  if (!first || first % 4) return 0;
+  let end = first;
+  for (let i = 0; i < first / 4; i++) end = Math.max(end, (mem[4 * i] | (mem[4 * i + 1] << 8)) + (mem[4 * i + 2] | (mem[4 * i + 3] << 8)));
+  return end;
+}
+
+// Igual que el driver oficial: los códigos > 0x45 son "extendidos" salvo navegación y teclado numérico.
+const NOT_EXTENDED = [79, 80, 81, 82, 98, 89, 90, 91, 92, 93, 94, 95, 96, 97, 87, 86, 85, 84, 99, 88, 76, 72, 73, 74, 75, 77, 78, 70, 71, 83];
+export const macroKeyKind = (code: number) => (code > 69 && !NOT_EXTENDED.includes(code) ? 1 : 0);
+
+/** Arma la memoria completa a partir de la lista de macros (el índice de cada una es su posición). */
+export function buildMacros(macros: Macro[]): Uint8Array {
+  const bodies = macros.map((m) => {
+    const name = new TextEncoder().encode(m.name);
+    const events = m.events.flatMap((e) => {
+      const d = Math.max(0, Math.min(0x7ffff, e.delay));
+      return [(e.down ? 0 : 0x80) | ((e.kind & 7) << 4) | ((d >> 16) & 7), (d >> 8) & 0xff, d & 0xff, e.code];
+    });
+    return [name.length, ...name, ...events];
+  });
+  const table: number[] = [];
+  let addr = macros.length * 4;
+  for (const body of bodies) {
+    table.push(addr & 0xff, addr >> 8, body.length & 0xff, body.length >> 8);
+    addr += body.length;
+  }
+  return new Uint8Array([...table, ...bodies.flat()]);
+}
+
+/** Texto corto de un evento: "Shift↓", "1↑". */
+export function describeMacroEvent(e: MacroEvent) {
+  const MOUSE: Record<number, string> = { 1: "Clic izq.", 2: "Clic der.", 4: "Clic medio", 8: "Atrás", 16: "Adelante" };
+  const mods: Record<number, string> = { 0xe0: "Ctrl", 0xe1: "Shift", 0xe2: "Alt ⌥", 0xe3: "Win ⌘", 0xe4: "Ctrl der.", 0xe5: "Shift der.", 0xe6: "Alt ⌥ der.", 0xe7: "Win ⌘ der." };
+  const name = e.kind === 2 ? MOUSE[e.code] ?? `Mouse ${e.code}` : mods[e.code] ?? keyName(e.code) ?? `0x${hex(e.code)}`;
+  return `${name}${e.down ? "↓" : "↑"}`;
+}
+
+/** KeyboardEvent.code de modificadores → código HID de tecla (0xE0–0xE7), para grabar macros. */
+export const MOD_KEY_BY_CODE: Record<string, number> = {
+  ControlLeft: 0xe0,
+  ShiftLeft: 0xe1,
+  AltLeft: 0xe2,
+  MetaLeft: 0xe3,
+  ControlRight: 0xe4,
+  ShiftRight: 0xe5,
+  AltRight: 0xe6,
+  MetaRight: 0xe7,
+};

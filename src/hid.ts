@@ -276,7 +276,7 @@ export class Hid {
 
     for (const [idx, chunk] of chunks.entries()) {
       const len = idx === chunks.length - 1 ? lastLen(chunk) : CHUNK;
-      // lenTag: el mapa de teclas lleva la capa en el nibble alto del largo (capa<<4 | largo).
+      // lenTag va en el nibble alto del largo: la capa (mapa de teclas) o la página (macros).
       const packet = buildVendorPacket(cmd, chunks.length, [idx, lenTag | len, ...chunk]);
       let acked = false;
       for (let attempt = 0; attempt < 3 && !acked; attempt++) {

@@ -31,6 +31,7 @@
       <button data-tab="device" class="active">Dispositivo</button>
       <button data-tab="keyboard">Teclado</button>
       <button data-tab="lighting">Iluminación</button>
+      <button data-tab="macros">Macros</button>
       <button data-tab="packets">Paquetes</button>
       <button data-tab="console">Consola HID</button>
     </nav>
@@ -78,6 +79,16 @@
           <div id="effects" class="effects"></div>
           <div id="effect-params" class="panel"></div>
         </div>
+      </section>
+
+      <section id="tab-macros" class="tab">
+        <div class="layer-bar">
+          <button id="read-macros" class="primary">Leer macros</button>
+          <button id="new-macro">Nueva macro</button>
+          <span id="macros-status" class="hint"></span>
+        </div>
+        <div id="macro-editor" class="panel" hidden></div>
+        <div id="macro-list"></div>
       </section>
 
       <section id="tab-packets" class="tab">

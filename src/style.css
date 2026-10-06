@@ -571,3 +571,49 @@ mark {
   border-color: var(--accent);
   color: var(--accent-text);
 }
+
+.macro-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.macro-head h3 {
+  margin: 0;
+}
+
+.macro-head button {
+  margin-left: auto;
+}
+
+.macro-events {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.macro-events span {
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+/* Apretar con fondo de acento, soltar solo con borde. */
+.macro-events span.down {
+  background: var(--key-active);
+}
+
+#macro-rec.armed {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+/* Sin asignar en Fn/Fn2: se puede tocar y asignar igual, solo se distingue con borde punteado. */
+.board .key.unassigned {
+  color: var(--muted);
+  border-style: dashed;
+}

@@ -13,6 +13,8 @@ nada, no necesita drivers y no se conecta a ningún servidor.
 - **Batería:** porcentaje y si está cargando, en el encabezado.
 - **Remapeo de teclas:** en las capas Default, Fn y Fn2; cualquier tecla puede ser otra tecla, un modificador o una
   función multimedia, y se puede volver a la asignación de fábrica.
+- **Macros:** lee las macros guardadas en el teclado (y qué tecla usa cada una), graba nuevas o regraba existentes
+  conservando las demás, y las asigna a una tecla con su modo de reproducción.
 - **Sin sorpresas:** cada cambio se lee, se escribe solo lo necesario y se verifica releyendo el teclado.
 - **Herramientas de análisis:** layout del teclado, paquetes de fábrica decodificados y una consola HID con log.
 
@@ -36,6 +38,7 @@ Abrí http://localhost:5173 en Chrome, tocá **Conectar** y elegí "MCHOSE 2.4G 
 1. En **Dispositivo**, tocá **Leer configuración** para cargar tus valores actuales.
 2. En **Iluminación**, elegí un efecto, ajustalo y tocá **Aplicar**.
 3. En **Teclado**, elegí la capa, tocá **Leer capa**, después una tecla, y asignale lo que quieras.
+4. En **Macros**, tocá **Leer macros** y después **Nueva macro** o **Regrabar**; asignala desde la pestaña Teclado.
 
 Algunas cosas a saber:
 
@@ -64,6 +67,7 @@ checksum = (0x13 + suma de los 18 bytes anteriores) & 0xFF
 | Colores: paleta de 7 colores RGB por efecto | `0x49` | `0x09` | 490 bytes (+ cola `5A A5` al escribir) |
 | Batería: `[nivel %][estado]` | `0x4A` | — | 2 bytes |
 | Mapa de teclas de una capa | `0x41` | `0x01` | 504 bytes (512 con la cola `5A A5` al escribir) |
+| Memoria de macros, por páginas | `0x43` | `0x03` | páginas de 512 bytes |
 
 **Configuración (128 bytes):**
 
@@ -81,7 +85,17 @@ checksum = (0x13 + suma de los 18 bytes anteriores) & 0xFF
 `20` Fn2) y la escritura en el nibble alto del byte de largo (`capa<<4 | largo`). Cada tecla ocupa 4 bytes
 `[tipo][modificadores][código alto][código bajo]`, ordenadas por columnas (el offset es el `keypos` del XML menos 8):
 tipo `00` = tecla HID con modificadores, `02` = multimedia (código de 16 bits), `0D` = Fn, `03`/`07`/`08` = funciones
-del teclado (conexión, sistema, iluminación). En modo Mac el propio teclado guarda Win y Alt intercambiadas.
+del teclado (sistema, iluminación). En modo Mac el propio teclado guarda Win y Alt intercambiadas.
+
+**Macros:** se leen por página (`43 01 00 YY`, con `YY` = página<<4). La memoria empieza con una tabla de
+`[dirección LE][largo LE]` por macro; en cada dirección va `[largo del nombre][nombre UTF-8][eventos]`. Cada evento
+ocupa 4 bytes: `[flags][demora][demora][código]`, con bit 7 = soltar, bits 4–6 = tipo (0 tecla, 1 modificador u
+otra, 2 mouse) y una demora de 20 bits en ms. Una tecla llama a una macro con `[03][modo][01][índice]`, modo `1` =
+una vez, `4` = mientras se mantiene, `2` = hasta volver a apretar.
+
+Al escribir, **cada página de 512 bytes va en una tanda propia** con el índice de pedazo empezando de nuevo en 0 y la
+página en el nibble alto del largo. Con índices continuos (como hace el driver web) el teclado descarta todo lo que
+pasa de los primeros 512 bytes.
 
 ## Cómo se hizo
 
