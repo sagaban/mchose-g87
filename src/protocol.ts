@@ -148,7 +148,25 @@ export function configDiff(current: Uint8Array) {
  *   [0x38 + 2·n + 1]  nibble alto: velocidad (0–4) · nibble bajo: origen del color
  *                     (0–6 = ese lugar de la paleta, 7 = colores automáticos de todo el espectro)
  */
-export const ConfigOffset = { effect: 10, effectParams: 0x38 } as const;
+export const ConfigOffset = { effect: 10, osMode: 27, effectParams: 0x38 } as const;
+
+/**
+ * Modo del sistema (byte 27 de la configuración; Fn+W / Fn+E). Confirmado contra el teclado: cambiar de modo
+ * solo cambia este byte; el firmware aplica el intercambio Win/Alt y las F1–F12 al vuelo, sin tocar las capas.
+ */
+export const OS_MODES = [
+  { value: 0, label: "Windows" },
+  { value: 2, label: "Mac" },
+] as const;
+
+export const osModeName = (cfg: Uint8Array) =>
+  OS_MODES.find((m) => m.value === cfg[ConfigOffset.osMode])?.label ?? `desconocido (${cfg[ConfigOffset.osMode]})`;
+
+export function withOsMode(cfg: Uint8Array, value: number) {
+  const out = cfg.slice();
+  out[ConfigOffset.osMode] = value;
+  return out;
+}
 
 export function decodeConfig(cfg: Uint8Array) {
   const mode = cfg[ConfigOffset.effect];

@@ -10,6 +10,7 @@ nada, no necesita drivers y no se conecta a ningún servidor.
 
 - **Iluminación:** efecto, brillo, velocidad y color de cada efecto.
 - **Paleta:** 7 colores editables por efecto; elegís cuál usa o el modo automático (todo el espectro).
+- **Modo Windows/Mac:** lo muestra y lo cambia (como Fn+W / Fn+E).
 - **Batería:** porcentaje y si está cargando, en el encabezado.
 - **Remapeo de teclas:** en las capas Default, Fn y Fn2; cualquier tecla puede ser otra tecla, un modificador o una
   función multimedia, y se puede volver a la asignación de fábrica.
@@ -75,6 +76,8 @@ checksum = (0x13 + suma de los 18 bytes anteriores) & 0xFF
 **Configuración (128 bytes):**
 
 - Offset `10`: efecto activo (número de modo, ver `src/data/g87.json`).
+- Offset `27`: modo del sistema, `00` = Windows, `02` = Mac (lo mismo que Fn+W / Fn+E). Cambiar de modo no toca las
+  capas: el firmware intercambia Win/Alt y las F1–F12 al vuelo.
 - Offset `0x38 + 2·modo`: brillo del efecto (0–4).
 - Offset `0x38 + 2·modo + 1`: nibble alto = velocidad (0–4); nibble bajo = origen del color (`0`–`6` = lugar de la
   paleta, `7` = colores automáticos de todo el espectro, ignora la paleta).

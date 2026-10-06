@@ -4,11 +4,13 @@ import { HStack, Stack } from "styled-system/jsx";
 import Board from "~/components/Board";
 import { DataList, mono, muted, Panel } from "~/components/common";
 import KeyPicker from "~/components/KeyPicker";
+import OsModeSwitch from "~/components/OsModeSwitch";
 import { factoryAssignment, sameAssignment } from "~/components/keymap";
 import { Button } from "~/components/ui/button";
 import { IconButton } from "~/components/ui/icon-button";
 import * as SegmentGroup from "~/components/ui/segment-group";
 import {
+  ConfigOffset,
   describeAssignment,
   hexBytes,
   keyAssignment,
@@ -17,7 +19,7 @@ import {
   type Assignment,
   type Key,
 } from "~/protocol";
-import { device, layers, macros, readLayer, run, sameBytes } from "~/state";
+import { config, device, layers, macros, readLayer, run, sameBytes, setConfig, waking } from "~/state";
 
 /** Descripción de una asignación con el nombre de la macro, si ya se leyeron. */
 const withMacroName = (a: Assignment) => {
@@ -37,7 +39,11 @@ export default function KeyboardTab() {
 
   const read = async () => {
     setReading(true);
-    await run(() => readLayer(layerId()));
+    await run(async () => {
+      await readLayer(layerId());
+      // El modo Windows/Mac está en la configuración: se lee también si todavía no se tiene.
+      if (!config()) setConfig(await device.readConfig(waking));
+    });
     setReading(false);
   };
 
@@ -98,7 +104,20 @@ export default function KeyboardTab() {
               : "Resaltadas: distintas de fábrica. Punteadas: sin asignar en esta capa."
             : `Capa ${layerName()} sin leer.`}
         </span>
+        <Show when={config()}>
+          <HStack gap="2" ms="auto">
+            <span class={muted}>Modo</span>
+            <OsModeSwitch hint={false} />
+          </HStack>
+        </Show>
       </HStack>
+
+      <Show when={config()?.[ConfigOffset.osMode] === 2}>
+        <p class={muted}>
+          El teclado está en modo Mac: al usarlo, el firmware intercambia Win y Alt izquierdo y las F1–F12 pasan a ser
+          multimedia (con Fn, F1–F12). Acá se ve lo que está guardado en las capas, que no cambia con el modo.
+        </p>
+      </Show>
 
       <Board layerId={layerId()} layer={layer()} selected={selected()} onSelect={select} />
 
