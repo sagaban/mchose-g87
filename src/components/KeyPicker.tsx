@@ -1,7 +1,7 @@
 import { Keyboard, Search } from "lucide-solid";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { css, cx } from "styled-system/css";
-import { Grid, HStack, Stack } from "styled-system/jsx";
+import { Box, Grid, HStack, Stack } from "styled-system/jsx";
 import { muted } from "~/components/common";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -106,7 +106,7 @@ export default function KeyPicker(props: {
   onCleanup(() => stop?.());
 
   return (
-    <Stack gap="3" borderWidth="1px" borderColor="border" borderRadius="l3" p="3">
+    <Stack gap="3" w="full" borderWidth="1px" borderColor="border" borderRadius="l3" p="3">
       <HStack gap="2" flexWrap="wrap">
         <Button
           size="sm"
@@ -125,61 +125,81 @@ export default function KeyPicker(props: {
         <p class={muted}>{captureNote()}</p>
       </Show>
 
-      <Show when={!query().trim()}>
-        <Tabs.Root size="sm" variant="line" value={group()} onValueChange={(d) => setGroup(d.value)}>
+      {/* Pestañas siempre visibles y el modo de macros en la misma fila: la altura no cambia. */}
+      <HStack justify="space-between" gap="3">
+        <Tabs.Root
+          size="sm"
+          variant="line"
+          value={group()}
+          onValueChange={(d) => {
+            setGroup(d.value);
+            setQuery("");
+          }}
+        >
           <Tabs.List>
             <For each={GROUPS}>{(g) => <Tabs.Trigger value={g}>{g}</Tabs.Trigger>}</For>
             <Tabs.Indicator />
           </Tabs.List>
         </Tabs.Root>
-      </Show>
+        <Show when={group() === "Macros" && !query().trim()}>
+          <SegmentGroup.Root
+            size="xs"
+            value={String(macroMode())}
+            onValueChange={(d) => {
+              if (!d.value) return;
+              setMacroMode(Number(d.value));
+              // Si ya había una macro elegida, se actualiza su modo.
+              const c = props.chosen;
+              if (c?.[0] === 3) props.onChoose([3, Number(d.value), 1, c[3]]);
+            }}
+          >
+            <SegmentGroup.Indicator />
+            {/* Etiquetas cortas para que entren en la fila de las pestañas; el nombre completo, en el tooltip. */}
+            <For each={MACRO_MODES}>
+              {(m) => (
+                <SegmentGroup.Item value={String(m.mode)} title={m.label}>
+                  <SegmentGroup.ItemText>{m.short[0].toUpperCase() + m.short.slice(1)}</SegmentGroup.ItemText>
+                  <SegmentGroup.ItemControl />
+                  <SegmentGroup.ItemHiddenInput />
+                </SegmentGroup.Item>
+              )}
+            </For>
+          </SegmentGroup.Root>
+        </Show>
+      </HStack>
 
-      <Show when={group() === "Macros" && !query().trim()}>
-        <SegmentGroup.Root
-          size="xs"
-          value={String(macroMode())}
-          onValueChange={(d) => {
-            if (!d.value) return;
-            setMacroMode(Number(d.value));
-            // Si ya había una macro elegida, se actualiza su modo.
-            const c = props.chosen;
-            if (c?.[0] === 3) props.onChoose([3, Number(d.value), 1, c[3]]);
-          }}
+      {/* Alto fijo (entran todas las teclas en el ancho del diálogo): el selector no cambia de tamaño entre pestañas. */}
+      <Box h="22rem" overflowY="auto">
+        <Show
+          when={!(group() === "Macros" && !query().trim() && !macros())}
+          fallback={
+            <HStack gap="2">
+              <span class={muted}>Las macros todavía no se leyeron.</span>
+              <Button size="xs" variant="outline" onClick={() => run(readMacroMemory)}>
+                Leer macros
+              </Button>
+            </HStack>
+          }
         >
-          <SegmentGroup.Indicator />
-          <SegmentGroup.Items items={MACRO_MODES.map((m) => ({ value: String(m.mode), label: m.label }))} />
-        </SegmentGroup.Root>
-      </Show>
-
-      <Show
-        when={!(group() === "Macros" && !query().trim() && !macros())}
-        fallback={
-          <HStack gap="2">
-            <span class={muted}>Las macros todavía no se leyeron.</span>
-            <Button size="xs" variant="outline" onClick={() => run(readMacroMemory)}>
-              Leer macros
-            </Button>
-          </HStack>
-        }
-      >
-        <Grid gridTemplateColumns="repeat(auto-fill, minmax(76px, 1fr))" gap="1.5" maxH="52" overflowY="auto">
-          <For each={visible()} fallback={<span class={muted}>Nada coincide con "{query()}".</span>}>
-            {(o) => (
-              <OptionChip
-                label={o.label}
-                group={o.group}
-                value={o.value}
-                class={cx(
-                  chip,
-                  sameAssignment(o.value, props.current) && chipCurrent,
-                  props.chosen && sameAssignment(o.value, props.chosen) && chipChosen,
-                )}
-                onClick={() => props.onChoose(o.value)}
-              />
-            )}
-          </For>
-        </Grid>
-      </Show>
+          <Grid gridTemplateColumns="repeat(auto-fill, minmax(76px, 1fr))" gridAutoRows="2rem" gap="1.5" alignContent="start">
+            <For each={visible()} fallback={<span class={muted}>Nada coincide con "{query()}".</span>}>
+              {(o) => (
+                <OptionChip
+                  label={o.label}
+                  group={o.group}
+                  value={o.value}
+                  class={cx(
+                    chip,
+                    sameAssignment(o.value, props.current) && chipCurrent,
+                    props.chosen && sameAssignment(o.value, props.chosen) && chipChosen,
+                  )}
+                  onClick={() => props.onChoose(o.value)}
+                />
+              )}
+            </For>
+          </Grid>
+        </Show>
+      </Box>
     </Stack>
   );
 }

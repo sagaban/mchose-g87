@@ -133,7 +133,7 @@ export default function KeyboardTab() {
         <Portal>
           <Dialog.Backdrop />
           <Dialog.Positioner>
-            <Dialog.Content maxW="3xl" w="full">
+            <Dialog.Content maxW="5xl" w="92vw">
               <Show when={selected()}>
                 {(key) => (
                   <>
@@ -163,7 +163,7 @@ export default function KeyboardTab() {
                         return (
                           <>
                             <Dialog.Body>
-                              <Stack gap="4">
+                              <Stack gap="4" w="full">
                                 <DataList
                                   items={[
                                     ["Ahora", <>{withMacroName(current())} <span class={mono}>{hexBytes(current())}</span></>],
