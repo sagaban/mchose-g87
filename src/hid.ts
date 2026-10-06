@@ -69,6 +69,17 @@ export class Hid {
   private listeners = new Set<Listener>();
   /** Operaciones en curso: se cortan si el teclado se desconecta. */
   private pending = new Set<(e: Error) => void>();
+  /**
+   * Cola de operaciones con el canal vendor: una a la vez. Dos pedidos del mismo comando en vuelo
+   * (por ejemplo, dos capas del mapa de teclas) mezclarían sus respuestas.
+   */
+  private queue: Promise<unknown> = Promise.resolve();
+
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(fn, fn);
+    this.queue = run.catch(() => {});
+    return run;
+  }
 
   get supported() {
     return "hid" in navigator;
@@ -210,11 +221,20 @@ export class Hid {
    * cada respuesta es [cmd][total][seq][len][datos…][checksum]. Si el teclado está dormido,
    * el dongle guarda el pedido y lo entrega al despertar; `onSlow` avisa para pedir una tecla.
    */
-  async query(
+  query(
     cmd: number,
     sub = 0x01,
     // Hasta 60 s: si el teclado duerme, hay que darle tiempo a la persona para apretar una tecla.
-    { timeoutMs = 60000, onSlow = () => {}, args = [] as number[] } = {},
+    // `accept` filtra respuestas (por ejemplo, solo las de una capa).
+    opts: { timeoutMs?: number; onSlow?: () => void; args?: number[]; accept?: (b: Uint8Array) => boolean } = {},
+  ): Promise<Uint8Array> {
+    return this.exclusive(() => this.queryNow(cmd, sub, opts));
+  }
+
+  private async queryNow(
+    cmd: number,
+    sub: number,
+    { timeoutMs = 60000, onSlow = () => {}, args = [] as number[], accept = (_: Uint8Array) => true },
   ): Promise<Uint8Array> {
     const d = this.vendorDevice();
 
@@ -230,7 +250,7 @@ export class Hid {
       onReport = (e) => {
         const ev = e as HIDInputReportEvent;
         const b = new Uint8Array(ev.data.buffer, ev.data.byteOffset, ev.data.byteLength);
-        if (ev.reportId !== VENDOR_REPORT || b[0] !== cmd || !validChecksum(b)) return;
+        if (ev.reportId !== VENDOR_REPORT || b[0] !== cmd || !validChecksum(b) || !accept(b)) return;
         total = b[1];
         // El nibble alto del largo puede traer la capa (mapa de teclas): el largo máximo es 14.
         parts.set(b[2], b.slice(4, 4 + (b[3] & 0x0f)));
@@ -264,10 +284,14 @@ export class Hid {
    * [cmd][total][idx][len][datos…] y el teclado confirma cada uno devolviendo cmd + idx.
    * Sin confirmación se reintenta el pedazo; si falla 3 veces se aborta.
    */
-  async writeBlock(
+  writeBlock(cmd: number, payload: Uint8Array, opts: { lastLen?: (c: Uint8Array) => number; lenTag?: number } = {}) {
+    return this.exclusive(() => this.writeBlockNow(cmd, payload, opts));
+  }
+
+  private async writeBlockNow(
     cmd: number,
     payload: Uint8Array,
-    { lastLen = (c: Uint8Array) => c.length, lenTag = 0 } = {},
+    { lastLen = (c: Uint8Array) => c.length, lenTag = 0 },
   ) {
     const d = this.vendorDevice();
 

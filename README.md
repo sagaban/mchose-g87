@@ -13,8 +13,9 @@ nada, no necesita drivers y no se conecta a ningún servidor.
 - **Batería:** porcentaje y si está cargando, en el encabezado.
 - **Remapeo de teclas:** en las capas Default, Fn y Fn2; cualquier tecla puede ser otra tecla, un modificador o una
   función multimedia, y se puede volver a la asignación de fábrica.
-- **Macros:** lee las macros guardadas en el teclado (y qué tecla usa cada una), graba nuevas o regraba existentes
-  conservando las demás, y las asigna a una tecla con su modo de reproducción.
+- **Macros:** lee las macros guardadas en el teclado (y qué tecla usa cada una), graba nuevas, regraba o borra
+  existentes conservando las demás (al borrar, corrige los índices en las teclas), y las asigna a una tecla con su
+  modo de reproducción.
 - **Sin sorpresas:** cada cambio se lee, se escribe solo lo necesario y se verifica releyendo el teclado.
 - **Herramientas de análisis:** layout del teclado, paquetes de fábrica decodificados y una consola HID con log.
 

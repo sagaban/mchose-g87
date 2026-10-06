@@ -509,3 +509,25 @@ export const MOD_KEY_BY_CODE: Record<string, number> = {
   AltRight: 0xe6,
   MetaRight: 0xe7,
 };
+
+/**
+ * Ajusta una capa después de borrar la macro `removed`: las teclas que la llamaban quedan sin asignar
+ * y las que llamaban a macros posteriores bajan un índice. Devuelve la capa nueva y las teclas tocadas.
+ */
+export function withMacroRemoved(layer: Uint8Array, removed: number) {
+  const out = layer.slice();
+  const cleared: Key[] = [];
+  const shifted: Key[] = [];
+  for (const key of keys) {
+    const [type, mode, hi, lo] = keyAssignment(out, key);
+    if (type !== 3 || hi !== 1) continue;
+    if (lo === removed) {
+      out.set([0, 0, 0, 0], keyOffset(key));
+      cleared.push(key);
+    } else if (lo > removed) {
+      out.set([3, mode, 1, lo - 1], keyOffset(key));
+      shifted.push(key);
+    }
+  }
+  return { layer: out, cleared, shifted };
+}

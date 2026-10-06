@@ -1,3 +1,4 @@
+import { dialog } from "./dialog";
 import { absoluteCenter } from "./absolute-center";
 import { group } from "./group";
 import { switchRecipe } from "./switch";
@@ -36,6 +37,7 @@ export const recipes = {
   tooltip,
   switchRecipe,
   group,
-  absoluteCenter
+  absoluteCenter,
+  dialog
 }
 export const slotRecipes = {}

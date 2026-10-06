@@ -141,19 +141,26 @@ export const readConfig = async () => {
 };
 
 export const readLayer = async (layer: number) => {
-  const data = await hid.query(Cmd.keymap, 0x01, { ...waking, args: [0x00, layer << 4] });
+  // La respuesta trae la capa en el nibble alto del largo: solo se aceptan pedazos de esta capa.
+  const data = await hid.query(Cmd.keymap, 0x01, { ...waking, args: [0x00, layer << 4], accept: (b) => b[3] >> 4 === layer });
   setLayers(layer, data);
   return data;
 };
 
-/** Lee las páginas necesarias de la memoria de macros (la tabla dice hasta dónde hay datos). */
-export async function readMacroMemory() {
+/** Lee las páginas necesarias de la memoria de macros (la tabla dice hasta dónde hay datos), sin tocar el estado. */
+export async function fetchMacroMemory() {
   const page = (n: number) => hid.query(Cmd.macros, 0x01, { ...waking, args: [0x00, n << 4] });
   let mem = await page(0);
   const end = macroMemoryEnd(mem);
   for (let n = 1; n * MACRO_PAGE < end; n++) mem = new Uint8Array([...mem, ...(await page(n))]);
-  mem = mem.slice(0, end);
-  setMacroMem(mem);
+  return mem.slice(0, end);
+}
+
+/** Lee la memoria de macros y la guarda en el estado (solo si cambió, para no redibujar la lista). */
+export async function readMacroMemory() {
+  const mem = await fetchMacroMemory();
+  const known = macroMem();
+  if (!known || !sameBytes(known, mem)) setMacroMem(mem);
   return mem;
 }
 
