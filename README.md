@@ -79,6 +79,8 @@ checksum = (0x13 + suma de los 18 bytes anteriores) & 0xFF
 
 - Offset `9`: `lightType`, `1` para los efectos con color por tecla (19, 21), `0` para el resto.
 - Offset `10`: efecto activo (número de modo, ver `src/data/g87.json`).
+- Offset `96 + modo`: brillo (0–4) de los efectos con color por tecla; en esos efectos el par de parámetros no se
+  usa para el brillo (confirmado con Self-define: offset 117).
 - Offset `27`: modo del sistema, `00` = Windows, `02` = Mac (lo mismo que Fn+W / Fn+E). Cambiar de modo no toca las
   capas: el firmware intercambia Win/Alt y las F1–F12 al vuelo.
 - Offset `0x38 + 2·modo`: brillo del efecto (0–4).

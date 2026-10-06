@@ -174,13 +174,19 @@ export function withOsMode(cfg: Uint8Array, value: number) {
   return out;
 }
 
+/**
+ * Brillo de los efectos con color por tecla: va aparte, en el offset 96 + modo (confirmado con Self-define, modo 21:
+ * offset 117, escala 0–4, cambia con Fn+↑/↓). El par de parámetros de ese modo no se usa para el brillo.
+ */
+export const diyBrightnessOffset = (mode: number) => 96 + mode;
+
 export function decodeConfig(cfg: Uint8Array) {
   const mode = cfg[ConfigOffset.effect];
   const at = ConfigOffset.effectParams + 2 * mode;
   return {
     effect: effects.find((e) => e.mode === mode) ?? null,
     mode,
-    brightness: cfg[at],
+    brightness: DIY_MODES.includes(mode) ? cfg[diyBrightnessOffset(mode)] : cfg[at],
     speed: cfg[at + 1] >> 4,
     colorSource: cfg[at + 1] & 0x0f,
   };
@@ -207,6 +213,10 @@ export function withLight(cfg: Uint8Array, change: LightChange) {
   out[ConfigOffset.lightType] = DIY_MODES.includes(change.mode) ? 1 : 0;
   const at = ConfigOffset.effectParams + 2 * change.mode;
   if (change.mode === 0) return out; // "Off" no tiene parámetros
+  if (DIY_MODES.includes(change.mode)) {
+    if (change.brightness !== undefined) out[diyBrightnessOffset(change.mode)] = clamp(change.brightness);
+    return out;
+  }
   if (change.brightness !== undefined) out[at] = clamp(change.brightness);
   const speed = change.speed !== undefined ? clamp(change.speed) : out[at + 1] >> 4;
   const source = change.colorSource ?? out[at + 1] & 0x0f;

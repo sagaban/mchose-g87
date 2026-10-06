@@ -103,7 +103,7 @@ export default function LightingTab() {
       const cfg = await device.readConfig(waking);
       const next = withLight(cfg, {
         mode: fx.mode,
-        brightness: fx.brightness ? brightness() : undefined,
+        brightness: fx.brightness || DIY_MODES.includes(fx.mode) ? brightness() : undefined,
         speed: fx.speed ? speed() : undefined,
         colorSource: fx.color || fx.multicolor ? source() : undefined,
       });
@@ -154,7 +154,8 @@ export default function LightingTab() {
         description={config() ? `Modo ${selected().mode}` : "Tocá «Leer del teclado» (arriba) para ver tus valores actuales."}
       >
         <Stack gap="6">
-          <Show when={selected().brightness}>
+          {/* Self-define no trae brillo en el XML, pero el teclado lo guarda aparte (ver diyBrightnessOffset). */}
+          <Show when={selected().brightness || DIY_MODES.includes(selected().mode)}>
             <Level label="Brillo" value={brightness()} onChange={setBrightness} />
           </Show>
           <Show when={selected().speed}>

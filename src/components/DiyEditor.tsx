@@ -1,5 +1,5 @@
 import { Eraser, Paintbrush, SquareDashed, SquareDashedMousePointer } from "lucide-solid";
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { css, cx } from "styled-system/css";
 import { HStack, Stack } from "styled-system/jsx";
 import { muted } from "~/components/common";
@@ -54,6 +54,11 @@ export default function DiyEditor() {
     });
     setBusy(false);
   };
+
+  // Se leen solos al abrir el editor (sin esperar si el teclado duerme).
+  onMount(() => {
+    if (!diyColors() && hasVendorChannel()) read();
+  });
 
   // Seleccionar arrastrando: con el botón apretado, pasar sobre teclas las agrega (o quita).
   let dragMode: "add" | "remove" | null = null;
