@@ -79,6 +79,8 @@ export default function KeyPicker(props: {
     let lastMod = 0;
     const onDown = (e: KeyboardEvent) => {
       e.preventDefault();
+      // Mientras captura, ninguna tecla (ni Esc) llega a otros manejadores, como el cierre del diálogo.
+      e.stopPropagation();
       if (MOD_BY_CODE[e.code]) return void (lastMod = MOD_BY_CODE[e.code]);
       const code = HID_BY_CODE[e.code];
       stop?.();

@@ -1,5 +1,6 @@
 import { RotateCcw, X } from "lucide-solid";
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 import { HStack, Stack } from "styled-system/jsx";
 import Board from "~/components/Board";
 import { DataList, mono, muted, Panel } from "~/components/common";
@@ -7,6 +8,7 @@ import KeyPicker from "~/components/KeyPicker";
 import OsModeSwitch from "~/components/OsModeSwitch";
 import { factoryAssignment, sameAssignment } from "~/components/keymap";
 import { Button } from "~/components/ui/button";
+import * as Dialog from "~/components/ui/dialog";
 import { IconButton } from "~/components/ui/icon-button";
 import * as SegmentGroup from "~/components/ui/segment-group";
 import {
@@ -33,6 +35,7 @@ export default function KeyboardTab() {
   const [selected, setSelected] = createSignal<Key | null>(null);
   const [chosen, setChosen] = createSignal<Assignment | null>(null);
   const [status, setStatus] = createSignal("");
+  const [busy, setBusy] = createSignal(false);
 
   const layer = () => layers[layerId()];
   const layerName = () => LAYERS[layerId()].name;
@@ -53,16 +56,11 @@ export default function KeyboardTab() {
     setStatus("");
   };
 
-  // Esc deselecciona, salvo que el selector esté capturando una tecla (ahí Esc es una asignación).
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key === "Escape" && !e.defaultPrevented && selected()) select(null);
-  };
-  window.addEventListener("keydown", onKey);
-  onCleanup(() => window.removeEventListener("keydown", onKey));
 
   /** Lee la capa, cambia los 4 bytes de la tecla, escribe la capa entera y verifica releyendo. */
   const apply = async (key: Key, value: Assignment) => {
     const id = layerId();
+    setBusy(true);
     setStatus("Leyendo capa…");
     const result = await run(async () => {
       const fresh = await readLayer(id);
@@ -74,6 +72,7 @@ export default function KeyboardTab() {
       const after = await readLayer(id);
       return sameBytes(after, next) ? "Aplicado ✓" : "El teclado guardó otros valores: revisá la consola.";
     });
+    setBusy(false);
     setStatus(result ?? "Error: ver la consola HID.");
     if (result === "Aplicado ✓") setChosen(null);
   };
@@ -121,53 +120,94 @@ export default function KeyboardTab() {
 
       <Board layerId={layerId()} layer={layer()} selected={selected()} onSelect={select} />
 
-      <Show when={selected()} fallback={<p class={muted}>Leé una capa y tocá una tecla para cambiar lo que hace.</p>}>
-        {(key) => (
-          <Panel
-            title={<>{key().label} <span class={muted}>· capa {layerName()}</span></>}
-            actions={
-              <IconButton size="sm" variant="plain" aria-label="Cerrar" title="Cerrar (Esc)" onClick={() => select(null)}>
-                <X />
-              </IconButton>
-            }
-          >
-            <Show when={layer()} fallback={<p class={muted}>Leé la capa {layerName()} para ver y cambiar esta tecla.</p>}>
-              {(data) => {
-                const current = () => keyAssignment(data(), key());
-                const factory = () => factoryAssignment(key(), layerId());
-                return (
-                  <Stack gap="4">
-                    <DataList
-                      items={[
-                        ["Ahora", <>{withMacroName(current())} <span class={mono}>{hexBytes(current())}</span></>],
-                        ["De fábrica", <>{describeAssignment(factory())} <span class={mono}>{hexBytes(factory())}</span></>],
-                      ]}
+      <p class={muted}>Leé una capa y tocá una tecla para cambiar lo que hace.</p>
+
+      {/* Panel de la tecla como diálogo: el selector entero queda a la vista sin scrollear. */}
+      <Dialog.Root
+        open={!!selected()}
+        onOpenChange={(d) => !d.open && !busy() && select(null)}
+        closeOnInteractOutside={!busy()}
+        lazyMount
+        unmountOnExit
+      >
+        <Portal>
+          <Dialog.Backdrop />
+          <Dialog.Positioner>
+            <Dialog.Content maxW="3xl" w="full">
+              <Show when={selected()}>
+                {(key) => (
+                  <>
+                    <Dialog.Header>
+                      <Dialog.Title>
+                        {key().label} <span class={muted}>· capa {layerName()}</span>
+                      </Dialog.Title>
+                    </Dialog.Header>
+                    <Dialog.CloseTrigger
+                      asChild={(p) => (
+                        <IconButton {...p()} size="sm" variant="plain" aria-label="Cerrar" title="Cerrar (Esc)" position="absolute" top="3" right="3">
+                          <X />
+                        </IconButton>
+                      )}
                     />
-                    <KeyPicker current={current()} chosen={chosen()} onChoose={setChosen} />
-                    <HStack gap="3" flexWrap="wrap">
-                      <span>
-                        Nueva: <b>{chosen() ? withMacroName(chosen()!) : "—"}</b>
-                      </span>
-                      <Button size="sm" variant="outline" disabled={sameAssignment(current(), factory())} onClick={() => apply(key(), factory())}>
-                        <RotateCcw /> Volver a fábrica
-                      </Button>
-                      <Button
-                        size="sm"
-                        colorPalette="blue"
-                        disabled={!chosen() || sameAssignment(chosen()!, current())}
-                        onClick={() => apply(key(), chosen()!)}
-                      >
-                        Aplicar
-                      </Button>
-                      <span class={muted}>{status()}</span>
-                    </HStack>
-                  </Stack>
-                );
-              }}
-            </Show>
-          </Panel>
-        )}
-      </Show>
+                    <Show
+                      when={layer()}
+                      fallback={
+                        <Dialog.Body>
+                          <p class={muted}>Leé la capa {layerName()} para ver y cambiar esta tecla.</p>
+                        </Dialog.Body>
+                      }
+                    >
+                      {(data) => {
+                        const current = () => keyAssignment(data(), key());
+                        const factory = () => factoryAssignment(key(), layerId());
+                        return (
+                          <>
+                            <Dialog.Body>
+                              <Stack gap="4">
+                                <DataList
+                                  items={[
+                                    ["Ahora", <>{withMacroName(current())} <span class={mono}>{hexBytes(current())}</span></>],
+                                    ["De fábrica", <>{describeAssignment(factory())} <span class={mono}>{hexBytes(factory())}</span></>],
+                                  ]}
+                                />
+                                <KeyPicker current={current()} chosen={chosen()} onChoose={setChosen} />
+                              </Stack>
+                            </Dialog.Body>
+                            <Dialog.Footer justifyContent="space-between" flexWrap="wrap" gap="3">
+                              <span>
+                                Nueva: <b>{chosen() ? withMacroName(chosen()!) : "—"}</b> <span class={muted}>{status()}</span>
+                              </span>
+                              <HStack gap="2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={busy() || sameAssignment(current(), factory())}
+                                  onClick={() => apply(key(), factory())}
+                                >
+                                  <RotateCcw /> Volver a fábrica
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  colorPalette="blue"
+                                  loading={busy()}
+                                  disabled={!chosen() || sameAssignment(chosen()!, current())}
+                                  onClick={() => apply(key(), chosen()!)}
+                                >
+                                  Aplicar
+                                </Button>
+                              </HStack>
+                            </Dialog.Footer>
+                          </>
+                        );
+                      }}
+                    </Show>
+                  </>
+                )}
+              </Show>
+            </Dialog.Content>
+          </Dialog.Positioner>
+        </Portal>
+      </Dialog.Root>
     </Stack>
   );
 }
