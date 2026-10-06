@@ -18,6 +18,7 @@ import {
 } from "~/protocol";
 import { macros, readMacroMemory, run } from "~/state";
 import { sameAssignment } from "./keymap";
+import OptionChip from "./OptionChip";
 
 const GROUPS = [...new Set([...ASSIGNMENT_OPTIONS.map((o) => o.group), "Macros"])];
 
@@ -162,18 +163,17 @@ export default function KeyPicker(props: {
         <Grid gridTemplateColumns="repeat(auto-fill, minmax(76px, 1fr))" gap="1.5" maxH="52" overflowY="auto">
           <For each={visible()} fallback={<span class={muted}>Nada coincide con "{query()}".</span>}>
             {(o) => (
-              <button
-                type="button"
-                title={`${o.label} · ${o.group}`}
+              <OptionChip
+                label={o.label}
+                group={o.group}
+                value={o.value}
                 class={cx(
                   chip,
                   sameAssignment(o.value, props.current) && chipCurrent,
                   props.chosen && sameAssignment(o.value, props.chosen) && chipChosen,
                 )}
                 onClick={() => props.onChoose(o.value)}
-              >
-                {o.label}
-              </button>
+              />
             )}
           </For>
         </Grid>

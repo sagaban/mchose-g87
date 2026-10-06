@@ -4,6 +4,7 @@ import { HStack, Stack } from "styled-system/jsx";
 import { DataList, HexDump, mono, muted, Panel } from "~/components/common";
 import { Button } from "~/components/ui/button";
 import OsModeSwitch from "~/components/OsModeSwitch";
+import Shortcuts from "~/components/Shortcuts";
 import { describe, deviceLabel } from "~/hid";
 import { AUTO_COLOR, configDiff, decodeConfig, hex, hexBytes, parseBattery } from "~/protocol";
 import { config, conn, device, hasVendorChannel, readConfig, run, setConn, waking } from "~/state";
@@ -107,6 +108,7 @@ export default function DeviceTab() {
         <Show when={hasVendorChannel()}>
           <KeyboardState />
         </Show>
+        <Shortcuts />
         <For each={conn.devices}>
           {(d) => (
             <Panel title={deviceLabel(d)} description={<span class={mono}>VID 0x{hex(d.vendorId, 4)} · PID 0x{hex(d.productId, 4)}</span>}>
