@@ -1,11 +1,12 @@
-import { RotateCcw } from "lucide-solid";
-import { createSignal, Show } from "solid-js";
+import { RotateCcw, X } from "lucide-solid";
+import { createSignal, onCleanup, Show } from "solid-js";
 import { HStack, Stack } from "styled-system/jsx";
 import Board from "~/components/Board";
 import { DataList, mono, muted, Panel } from "~/components/common";
 import KeyPicker from "~/components/KeyPicker";
 import { factoryAssignment, sameAssignment } from "~/components/keymap";
 import { Button } from "~/components/ui/button";
+import { IconButton } from "~/components/ui/icon-button";
 import * as SegmentGroup from "~/components/ui/segment-group";
 import {
   describeAssignment,
@@ -16,7 +17,13 @@ import {
   type Assignment,
   type Key,
 } from "~/protocol";
-import { device, layers, readLayer, run, sameBytes } from "~/state";
+import { device, layers, macros, readLayer, run, sameBytes } from "~/state";
+
+/** Descripción de una asignación con el nombre de la macro, si ya se leyeron. */
+const withMacroName = (a: Assignment) => {
+  const name = a[0] === 3 && a[2] === 1 ? macros()?.[a[3]]?.name : undefined;
+  return name ? `${describeAssignment(a)} ("${name}")` : describeAssignment(a);
+};
 
 export default function KeyboardTab() {
   const [layerId, setLayerId] = createSignal(0);
@@ -34,11 +41,18 @@ export default function KeyboardTab() {
     setReading(false);
   };
 
-  const select = (k: Key) => {
+  const select = (k: Key | null) => {
     setSelected(k);
     setChosen(null);
     setStatus("");
   };
+
+  // Esc deselecciona, salvo que el selector esté capturando una tecla (ahí Esc es una asignación).
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && !e.defaultPrevented && selected()) select(null);
+  };
+  window.addEventListener("keydown", onKey);
+  onCleanup(() => window.removeEventListener("keydown", onKey));
 
   /** Lee la capa, cambia los 4 bytes de la tecla, escribe la capa entera y verifica releyendo. */
   const apply = async (key: Key, value: Assignment) => {
@@ -90,7 +104,14 @@ export default function KeyboardTab() {
 
       <Show when={selected()} fallback={<p class={muted}>Leé una capa y tocá una tecla para cambiar lo que hace.</p>}>
         {(key) => (
-          <Panel title={<>{key().label} <span class={muted}>· capa {layerName()}</span></>}>
+          <Panel
+            title={<>{key().label} <span class={muted}>· capa {layerName()}</span></>}
+            actions={
+              <IconButton size="sm" variant="plain" aria-label="Cerrar" title="Cerrar (Esc)" onClick={() => select(null)}>
+                <X />
+              </IconButton>
+            }
+          >
             <Show when={layer()} fallback={<p class={muted}>Leé la capa {layerName()} para ver y cambiar esta tecla.</p>}>
               {(data) => {
                 const current = () => keyAssignment(data(), key());
@@ -99,14 +120,14 @@ export default function KeyboardTab() {
                   <Stack gap="4">
                     <DataList
                       items={[
-                        ["Ahora", <>{describeAssignment(current())} <span class={mono}>{hexBytes(current())}</span></>],
+                        ["Ahora", <>{withMacroName(current())} <span class={mono}>{hexBytes(current())}</span></>],
                         ["De fábrica", <>{describeAssignment(factory())} <span class={mono}>{hexBytes(factory())}</span></>],
                       ]}
                     />
                     <KeyPicker current={current()} chosen={chosen()} onChoose={setChosen} />
                     <HStack gap="3" flexWrap="wrap">
                       <span>
-                        Nueva: <b>{chosen() ? describeAssignment(chosen()!) : "—"}</b>
+                        Nueva: <b>{chosen() ? withMacroName(chosen()!) : "—"}</b>
                       </span>
                       <Button size="sm" variant="outline" disabled={sameAssignment(current(), factory())} onClick={() => apply(key(), factory())}>
                         <RotateCcw /> Volver a fábrica

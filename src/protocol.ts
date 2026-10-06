@@ -299,6 +299,40 @@ const CONSUMER: Record<number, string> = {
   0xb7: "Stop",
   0x6f: "Brillo pantalla +",
   0x70: "Brillo pantalla −",
+  0x192: "Calculadora",
+  0x18a: "Mail",
+  0x194: "Mi PC",
+  0x223: "Navegador",
+  0x22a: "Favoritos",
+};
+
+/** Versión corta para dibujar en la tecla. */
+const CONSUMER_SHORT: Record<number, string> = {
+  0xe2: "Mute",
+  0xe9: "Vol+",
+  0xea: "Vol−",
+  0xcd: "⏯",
+  0xb5: "⏭",
+  0xb6: "⏮",
+  0xb7: "⏹",
+  0x6f: "☀+",
+  0x70: "☀−",
+  0x192: "Calc",
+  0x18a: "Mail",
+  0x194: "PC",
+  0x223: "Web",
+  0x22a: "Fav",
+};
+
+/**
+ * Funciones propias del firmware en la capa Fn (tipos 07/08). Solo las confirmadas contra el teclado;
+ * el resto se muestra con su código.
+ */
+const FIRMWARE: Record<string, [string, string]> = {
+  "08 03 01 00": ["Brillo de la luz +", "Luz+"],
+  "08 03 02 00": ["Brillo de la luz −", "Luz−"],
+  "08 04 01 00": ["Velocidad de la luz +", "Vel+"],
+  "08 04 02 00": ["Velocidad de la luz −", "Vel−"],
 };
 
 const EXTRA_KEYS: Record<number, string> = { 0x28: "Enter", 0x2a: "⌫", 0x46: "PrtSc", 0x64: "ISO \\" };
@@ -318,8 +352,30 @@ export function describeAssignment([type, mods, hi, lo]: Assignment): string {
   }
   if (type === 2) return CONSUMER[(hi << 8) | lo] ?? `Multimedia 0x${hex((hi << 8) | lo, 4)}`;
   if (type === 0x0d) return "Fn"; // la tecla Fn de fábrica: 0d 00 00 00
+  const fw = FIRMWARE[hexBytes([type, mods, hi, lo]).toLowerCase()];
+  if (fw) return fw[0];
   if (type === 3 && hi === 1) return `Macro ${lo + 1} · ${MACRO_MODES.find((m) => m.mode === mods)?.short ?? mods}`;
-  return `Función ${hexBytes([type, mods, hi, lo])}`;
+  return `Función del teclado ${hexBytes([type, mods, hi, lo])}`;
+}
+
+const MOD_SHORT = ["⌃", "⇧", "⌥", "⌘", "⌃R", "⇧R", "⌥R", "⌘R"];
+
+/** Nombre corto de una asignación, para dibujar en la tecla (el completo va en el tooltip y el panel). */
+export function shortAssignment(a: Assignment): string {
+  const [type, mods, hi, lo] = a;
+  if (type === 0 && mods === 0 && lo === 0) return "—";
+  if (type === 0) {
+    const m = MOD_SHORT.filter((_, i) => mods & (1 << i)).join("");
+    const k = lo ? keyName(lo) ?? hex(lo) : "";
+    // Teclas con dos símbolos ("- _", "< ,"): se dejan los dos, como en la tecla física.
+    return m + k;
+  }
+  if (type === 2) return CONSUMER_SHORT[(hi << 8) | lo] ?? "Media";
+  if (type === 3 && hi === 1) return `M${lo + 1}`;
+  if (type === 0x0d) return "Fn";
+  const fw = FIRMWARE[hexBytes(a).toLowerCase()];
+  if (fw) return fw[1];
+  return `${hex(type)}·${hex(lo || hi || mods)}`;
 }
 
 export interface AssignmentOption {
