@@ -3,3 +3,6 @@ dist
 package-lock.json
 # Archivos del instalador oficial (copyright del fabricante)
 vendor/
+
+# Panda
+styled-system

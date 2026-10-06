@@ -5,13 +5,23 @@
   "type": "module",
   "packageManager": "pnpm@11.2.2",
   "scripts": {
+    "prepare": "panda codegen",
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "panda codegen && tsc && vite build",
     "extract": "node scripts/extract-vendor.mjs"
   },
   "devDependencies": {
+    "@pandacss/dev": "^1.12.1",
+    "@pandacss/preset-base": "1.12.1",
+    "@pandacss/preset-panda": "1.12.1",
     "@types/w3c-web-hid": "^1.0.7",
     "typescript": "^7.0.2",
-    "vite": "^8.3.2"
+    "vite": "^8.3.2",
+    "vite-plugin-solid": "^2.11.14"
+  },
+  "dependencies": {
+    "@ark-ui/solid": "^5.39.2",
+    "lucide-solid": "^1.52.0",
+    "solid-js": "^1.9.15"
   }
 }
