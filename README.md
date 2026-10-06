@@ -24,6 +24,12 @@ nada, no necesita drivers y no se conecta a ningún servidor.
 Probado con el G87 conectado por el **receptor 2.4 GHz** (USB `41e4:2001`) y **por cable** (USB `41e4:2201`, con el
 selector del teclado en modo cable). La app detecta cómo está conectado y usa el transporte que corresponde.
 
+## Usarla sin instalar nada
+
+La app está publicada en **https://sagaban.github.io/mchose-g87/**. Abrila en Chrome (o Edge/Brave), conectá el
+teclado y listo. Para tenerla como aplicación, con su ventana y su ícono, usá **Instalar app** en la barra de
+direcciones de Chrome: funciona sin conexión y se actualiza sola cuando hay una versión nueva.
+
 ## Requisitos
 
 - Un navegador con WebHID: **Chrome, Edge, Brave u Opera** de escritorio. Safari y Firefox no lo soportan.
@@ -35,6 +41,9 @@ selector del teclado en modo cable). La app detecta cómo está conectado y usa 
 pnpm install
 pnpm dev
 ```
+
+Cada push a `main` se publica en GitHub Pages con el workflow de `.github/workflows/deploy.yml`. Los íconos de la
+PWA se generan desde `public/icon.svg` con `pnpm exec pwa-assets-generator`.
 
 Abrí http://localhost:5173 en Chrome, tocá **Conectar** y elegí "MCHOSE 2.4G Wireless".
 

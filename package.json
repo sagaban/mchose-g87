@@ -15,9 +15,13 @@
     "@pandacss/preset-base": "1.12.1",
     "@pandacss/preset-panda": "1.12.1",
     "@types/w3c-web-hid": "^1.0.7",
+    "@vite-pwa/assets-generator": "^2.0.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.2",
-    "vite-plugin-solid": "^2.11.14"
+    "vite-plugin-pwa": "^2.0.0",
+    "vite-plugin-solid": "^2.11.14",
+    "workbox-build": "^7.4.1",
+    "workbox-window": "^7.4.1"
   },
   "dependencies": {
     "@ark-ui/solid": "^5.39.2",
