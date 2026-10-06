@@ -20,6 +20,9 @@ import {
   keyAssignment,
   keymapPayload,
   withAssignment,
+  HID_BY_CODE,
+  MOD_BY_CODE,
+  modsFromEvent,
   type Assignment,
   DEFAULT_PALETTE,
   type Rgb,
@@ -295,8 +298,14 @@ $("#read-layer").addEventListener("click", () =>
 );
 
 const optionGroups = [...new Set(ASSIGNMENT_OPTIONS.map((o) => o.group))];
+/** Pestaña del selector elegida (se recuerda entre teclas). */
+let pickerGroup = "Teclas";
+/** Asignación elegida en el panel, todavía sin aplicar. */
+let pending: Assignment | null = null;
+let stopCapture: (() => void) | null = null;
 
 function renderKey(key: Key) {
+  stopCapture?.();
   const layer = layers.get(currentLayer);
   const detail = $("#key-detail");
   detail.className = "panel";
@@ -306,38 +315,108 @@ function renderKey(key: Key) {
   }
   const current = keyAssignment(layer, key);
   const factory = factoryAssignment(key, currentLayer);
-  const options = optionGroups
-    .map(
-      (g) => `<optgroup label="${g}">${ASSIGNMENT_OPTIONS.map((o, i) =>
-        o.group === g
-          ? `<option value="${i}" ${sameAssignment(o.value, current) ? "selected" : ""}>${esc(o.label)}</option>`
-          : "",
-      ).join("")}</optgroup>`,
-    )
-    .join("");
-  const known = ASSIGNMENT_OPTIONS.some((o) => sameAssignment(o.value, current));
+  pending = null;
   detail.innerHTML = `
     <h3>${esc(key.label)} <span class="hint">· capa ${LAYERS[currentLayer].name}</span></h3>
     <dl>
       <dt>Ahora</dt><dd>${esc(describeAssignment(current))} <span class="hint mono">${hexBytes(current)}</span></dd>
       <dt>De fábrica</dt><dd>${esc(describeAssignment(factory))} <span class="hint mono">${hexBytes(factory)}</span></dd>
     </dl>
+    <div class="picker">
+      <div class="picker-bar">
+        <button id="key-capture">⌨ Presioná una tecla…</button>
+        <input id="key-search" type="search" placeholder="Buscar (F5, vol, shift…)" />
+      </div>
+      <div class="picker-tabs">${optionGroups
+        .map((g) => `<button data-group="${g}" class="${g === pickerGroup ? "active" : ""}">${g}</button>`)
+        .join("")}</div>
+      <div id="picker-grid" class="picker-grid"></div>
+    </div>
     <p class="assign">
-      <label>Asignar
-        <select id="key-assign">
-          ${known ? "" : `<option value="" selected>${esc(describeAssignment(current))} (actual)</option>`}
-          ${options}
-        </select>
-      </label>
+      <span>Nueva: <b id="key-choice">—</b></span>
       <button id="key-factory" ${sameAssignment(current, factory) ? "disabled" : ""}>Volver a fábrica</button>
-      <button id="key-apply" class="primary">Aplicar</button>
+      <button id="key-apply" class="primary" disabled>Aplicar</button>
       <span id="key-status" class="hint"></span>
     </p>`;
-  $("#key-apply").addEventListener("click", () => {
-    const v = $<HTMLSelectElement>("#key-assign").value;
-    if (v !== "") applyKey(key, ASSIGNMENT_OPTIONS[Number(v)].value);
+
+  const choose = (a: Assignment) => {
+    pending = a;
+    $("#key-choice").textContent = `${describeAssignment(a)}`;
+    $<HTMLButtonElement>("#key-apply").disabled = sameAssignment(a, current);
+    renderGrid();
+  };
+
+  const renderGrid = () => {
+    const q = $<HTMLInputElement>("#key-search").value.trim().toLowerCase();
+    // Con búsqueda se filtra en todas las categorías; sin búsqueda, la pestaña elegida.
+    const list = ASSIGNMENT_OPTIONS.map((o, i) => ({ o, i })).filter(({ o }) =>
+      q ? o.label.toLowerCase().includes(q) : o.group === pickerGroup,
+    );
+    $("#picker-grid").innerHTML = list.length
+      ? list
+          .map(({ o, i }) => {
+            const cls = [pending && sameAssignment(o.value, pending) ? "chosen" : "", sameAssignment(o.value, current) ? "current" : ""];
+            return `<button data-opt="${i}" class="${cls.join(" ").trim()}" title="${esc(o.group)}">${esc(o.label)}</button>`;
+          })
+          .join("")
+      : `<p class="hint">Nada coincide con "${esc(q)}".</p>`;
+  };
+
+  detail.querySelectorAll<HTMLButtonElement>(".picker-tabs button").forEach((b) =>
+    b.addEventListener("click", () => {
+      pickerGroup = b.dataset.group!;
+      $<HTMLInputElement>("#key-search").value = "";
+      detail.querySelectorAll(".picker-tabs button").forEach((x) => x.classList.toggle("active", x === b));
+      renderGrid();
+    }),
+  );
+  $("#key-search").addEventListener("input", renderGrid);
+  $("#picker-grid").addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-opt]");
+    if (b) choose(ASSIGNMENT_OPTIONS[Number(b.dataset.opt)].value);
   });
+  $("#key-capture").addEventListener("click", () => (stopCapture ? stopCapture() : startCapture(choose)));
+  $("#key-apply").addEventListener("click", () => pending && applyKey(key, pending));
   $("#key-factory").addEventListener("click", () => applyKey(key, factory));
+  renderGrid();
+}
+
+/**
+ * Captura la próxima tecla (con sus modificadores) desde el teclado físico.
+ * Un modificador solo se toma al soltarlo, si no se apretó otra tecla mientras tanto.
+ */
+function startCapture(choose: (a: Assignment) => void) {
+  const btn = $("#key-capture");
+  btn.classList.add("armed");
+  btn.textContent = "Escuchando… (tocá de nuevo para cancelar)";
+  let lastMod = 0;
+  const onDown = (e: KeyboardEvent) => {
+    e.preventDefault();
+    if (MOD_BY_CODE[e.code]) {
+      lastMod = MOD_BY_CODE[e.code];
+      return;
+    }
+    const code = HID_BY_CODE[e.code];
+    stop();
+    if (code) choose([0, modsFromEvent(e), 0, code]);
+    else $("#key-choice").textContent = `"${e.code}" no se puede asignar desde acá: elegilo de la lista`;
+  };
+  const onUp = (e: KeyboardEvent) => {
+    if (MOD_BY_CODE[e.code] && MOD_BY_CODE[e.code] === lastMod) {
+      stop();
+      choose([0, lastMod, 0, 0]);
+    }
+  };
+  const stop = () => {
+    window.removeEventListener("keydown", onDown, true);
+    window.removeEventListener("keyup", onUp, true);
+    btn.classList.remove("armed");
+    btn.textContent = "⌨ Presioná una tecla…";
+    stopCapture = null;
+  };
+  window.addEventListener("keydown", onDown, true);
+  window.addEventListener("keyup", onUp, true);
+  stopCapture = stop;
 }
 
 /** Lee la capa, cambia los 4 bytes de la tecla, escribe la capa entera y verifica releyendo. */

@@ -284,7 +284,7 @@ export function withAssignment(layer: Uint8Array, key: Key, a: Assignment) {
   return out;
 }
 
-const MODIFIERS = ["Ctrl", "Shift", "Alt", "Win", "Ctrl der.", "Shift der.", "Alt der.", "Win der."];
+const MODIFIERS = ["Ctrl", "Shift", "Alt ⌥", "Win ⌘", "Ctrl der.", "Shift der.", "Alt ⌥ der.", "Win ⌘ der."];
 
 /** Multimedia (tipo 02, código de 16 bits en los bytes 2–3). Los de la capa Fn de fábrica. */
 const CONSUMER: Record<number, string> = {
@@ -327,7 +327,6 @@ export interface AssignmentOption {
 
 /** Asignaciones que se pueden elegir en la interfaz. */
 export const ASSIGNMENT_OPTIONS: AssignmentOption[] = [
-  { group: "General", label: "Desactivada", value: [0, 0, 0, 0] },
   ...Object.keys({ ...(data.keyNames as Record<string, string>), ...EXTRA_KEYS })
     .map(Number)
     .sort((a, b) => a - b)
@@ -338,4 +337,70 @@ export const ASSIGNMENT_OPTIONS: AssignmentOption[] = [
     label,
     value: [2, 0, +code >> 8, +code & 0xff] as Assignment,
   })),
+  { group: "General", label: "Desactivada", value: [0, 0, 0, 0] },
 ];
+
+/** KeyboardEvent.code → código HID (página de teclado), para capturar la tecla que la persona aprieta. */
+export const HID_BY_CODE: Record<string, number> = {
+  ...Object.fromEntries([..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].map((c, i) => [`Key${c}`, 0x04 + i])),
+  ...Object.fromEntries([..."123456789"].map((d, i) => [`Digit${d}`, 0x1e + i])),
+  Digit0: 0x27,
+  Enter: 0x28,
+  Escape: 0x29,
+  Backspace: 0x2a,
+  Tab: 0x2b,
+  Space: 0x2c,
+  Minus: 0x2d,
+  Equal: 0x2e,
+  BracketLeft: 0x2f,
+  BracketRight: 0x30,
+  Backslash: 0x31,
+  Semicolon: 0x33,
+  Quote: 0x34,
+  Backquote: 0x35,
+  Comma: 0x36,
+  Period: 0x37,
+  Slash: 0x38,
+  CapsLock: 0x39,
+  ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`F${i + 1}`, 0x3a + i])),
+  PrintScreen: 0x46,
+  ScrollLock: 0x47,
+  Pause: 0x48,
+  Insert: 0x49,
+  Home: 0x4a,
+  PageUp: 0x4b,
+  Delete: 0x4c,
+  End: 0x4d,
+  PageDown: 0x4e,
+  ArrowRight: 0x4f,
+  ArrowLeft: 0x50,
+  ArrowDown: 0x51,
+  ArrowUp: 0x52,
+  NumLock: 0x53,
+  NumpadDivide: 0x54,
+  NumpadMultiply: 0x55,
+  NumpadSubtract: 0x56,
+  NumpadAdd: 0x57,
+  NumpadEnter: 0x58,
+  ...Object.fromEntries([..."123456789"].map((d, i) => [`Numpad${d}`, 0x59 + i])),
+  Numpad0: 0x62,
+  NumpadDecimal: 0x63,
+  IntlBackslash: 0x64,
+  ContextMenu: 0x65,
+};
+
+/** Bit de modificador HID por KeyboardEvent.code. */
+export const MOD_BY_CODE: Record<string, number> = {
+  ControlLeft: 0x01,
+  ShiftLeft: 0x02,
+  AltLeft: 0x04,
+  MetaLeft: 0x08,
+  ControlRight: 0x10,
+  ShiftRight: 0x20,
+  AltRight: 0x40,
+  MetaRight: 0x80,
+};
+
+/** Modificadores apretados durante un evento, como byte HID (izquierdos). */
+export const modsFromEvent = (e: KeyboardEvent) =>
+  (e.ctrlKey ? 0x01 : 0) | (e.shiftKey ? 0x02 : 0) | (e.altKey ? 0x04 : 0) | (e.metaKey ? 0x08 : 0);

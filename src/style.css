@@ -501,6 +501,73 @@ mark {
   gap: 8px;
 }
 
-.assign select {
-  max-width: 220px;
+.picker {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  margin: 12px 0;
+}
+
+.picker-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.picker-bar input {
+  flex: 1;
+  min-width: 180px;
+}
+
+/* Escuchando una tecla: acento, no rojo de "peligro". */
+#key-capture.armed {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.picker-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+.picker-tabs button {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  white-space: nowrap;
+}
+
+.picker-tabs button.active {
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.picker-grid button {
+  padding: 4px 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.picker-grid button.current {
+  border-style: dashed;
+}
+
+.picker-grid button.chosen {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
 }
