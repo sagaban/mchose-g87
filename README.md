@@ -10,7 +10,8 @@ nada, no necesita drivers y no se conecta a ningún servidor.
 
 - **Iluminación:** efecto, brillo, velocidad y color de cada efecto.
 - **Paleta:** 7 colores editables por efecto; elegís cuál usa o el modo automático (todo el espectro).
-- **Modo Windows/Mac:** lo muestra y lo cambia (como Fn+W / Fn+E).
+- **Ajustes:** modo Windows/Mac (como Fn+W / Fn+E), tasa de sondeo, modo Top Speed (baja latencia), bloqueo de
+  la tecla Win y tiempo de suspensión.
 - **Batería:** porcentaje y si está cargando, en el encabezado.
 - **Remapeo de teclas:** en las capas Default, Fn y Fn2; cualquier tecla puede ser otra tecla, un modificador o una
   función multimedia, y se puede volver a la asignación de fábrica.
@@ -90,6 +91,8 @@ checksum = (0x13 + suma de los 18 bytes anteriores) & 0xFF
 - Offset `10`: efecto activo (número de modo, ver `src/data/g87.json`).
 - Offset `96 + modo`: brillo (0–4) de los efectos con color por tecla; en esos efectos el par de parámetros no se
   usa para el brillo (confirmado con Self-define: offset 117).
+- Offsets `1`, `3`, `15` y `24` (nombres y valores del driver oficial): tasa de sondeo (`1`/`2`/`3` = 250/500/1000
+  Hz), modo Top Speed (`0` activado, `2` estándar), bloqueo de Win (`1`/`0`) y suspensión (minutos × 2, `0` = nunca).
 - Offset `27`: modo del sistema, `00` = Windows, `02` = Mac (lo mismo que Fn+W / Fn+E). Cambiar de modo no toca las
   capas: el firmware intercambia Win/Alt y las F1–F12 al vuelo.
 - Offset `0x38 + 2·modo`: brillo del efecto (0–4).

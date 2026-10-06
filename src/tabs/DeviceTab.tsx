@@ -3,7 +3,6 @@ import { css } from "styled-system/css";
 import { HStack, Stack } from "styled-system/jsx";
 import { DataList, HexDump, mono, muted, Panel } from "~/components/common";
 import { Button } from "~/components/ui/button";
-import OsModeSwitch from "~/components/OsModeSwitch";
 import { describe, deviceLabel } from "~/hid";
 import { AUTO_COLOR, configDiff, decodeConfig, hex, hexBytes, parseBattery } from "~/protocol";
 import { config, conn, device, hasVendorChannel, run, setConn, waking } from "~/state";
@@ -50,7 +49,6 @@ function KeyboardState() {
             ["Versión", <span class={mono}>{conn.version ? hexBytes(conn.version) : "—"}</span>],
             ...((decoded()
               ? [
-                  ["Modo", <OsModeSwitch />],
                   ["Efecto", <>{decoded()!.effect?.name ?? "desconocido"} <span class={muted}>(modo {decoded()!.mode})</span></>],
                   ["Brillo", `${decoded()!.brightness} / 4`],
                   ["Velocidad", `${decoded()!.speed} / 4`],

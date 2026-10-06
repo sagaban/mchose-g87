@@ -36,6 +36,7 @@ import KeyboardTab from "./tabs/KeyboardTab";
 import LightingTab from "./tabs/LightingTab";
 import MacrosTab from "./tabs/MacrosTab";
 import PacketsTab from "./tabs/PacketsTab";
+import SettingsTab from "./tabs/SettingsTab";
 import ShortcutsTab from "./tabs/ShortcutsTab";
 
 function BatteryBadge() {
@@ -90,6 +91,7 @@ const TABS = [
   { value: "lighting", label: "Iluminación", content: LightingTab },
   { value: "macros", label: "Macros", content: MacrosTab },
   { value: "shortcuts", label: "Atajos", content: ShortcutsTab },
+  { value: "settings", label: "Ajustes", content: SettingsTab },
   { value: "packets", label: "Paquetes", content: PacketsTab },
   { value: "console", label: "Consola HID", content: ConsoleTab },
 ];

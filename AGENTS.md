@@ -123,8 +123,9 @@ Esto escribe en la memoria del dispositivo de alguien. Reglas que se siguieron s
 - Renumerar teclas al borrar una macro del medio (la lógica está; no se probó con datos reales).
 - Efecto 19 (el driver lo trata como de color por tecla, pero no aparece en la lista de efectos del G87).
 - Fn+G (`07 00 00 0A`): no está en el manual.
-- Campos de configuración nombrados por el driver pero no usados: tasa de sondeo (offset 1), baja latencia (3),
-  bloqueo de Win (15), suspensión (24).
+- Escritura de los ajustes de la pestaña Ajustes: tasa de sondeo (offset 1), Top Speed (3), bloqueo de Win (15) y
+  suspensión (24). Se leen bien (coinciden con el teclado); los valores salen del driver oficial, pero escribirlos no
+  se probó todavía. El modo Windows/Mac (27) sí está verificado.
 
 ## Convenciones
 

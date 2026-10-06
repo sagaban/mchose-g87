@@ -164,6 +164,24 @@ export const readConfig = async (w: { timeoutMs?: number; onSlow?: () => void } 
   });
 };
 
+/**
+ * Cambia bytes sueltos de la configuración: relee, aplica `edit` sobre una copia, escribe y verifica.
+ * Devuelve true si quedó guardado (o si no había nada que cambiar).
+ */
+export async function updateConfig(edit: (cfg: Uint8Array) => void): Promise<boolean> {
+  const fresh = await device.readConfig(waking);
+  const next = fresh.slice();
+  edit(next);
+  if (sameBytes(next, fresh)) {
+    setConfig(fresh);
+    return true;
+  }
+  await device.writeConfig(next);
+  const after = await device.readConfig(waking);
+  setConfig(after);
+  return sameBytes(after, next);
+}
+
 export const readLayer = async (layer: number) => {
   const data = await device.readLayer(layer, waking);
   setLayers(layer, data);

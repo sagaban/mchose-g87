@@ -2,23 +2,21 @@ import { createSignal } from "solid-js";
 import { HStack } from "styled-system/jsx";
 import { muted } from "~/components/common";
 import * as SegmentGroup from "~/components/ui/segment-group";
-import { ConfigOffset, OS_MODES, withOsMode } from "~/protocol";
-import { config, device, run, sameBytes, setConfig, waking } from "~/state";
+import { ConfigOffset, OS_MODES } from "~/protocol";
+import { config, run, updateConfig } from "~/state";
 
 /** Selector de modo Windows/Mac: cambia solo el byte del modo, escribe y verifica (igual que Fn+W / Fn+E). */
 export default function OsModeSwitch(props: { hint?: boolean }) {
   const [status, setStatus] = createSignal("");
   const change = async (value: number) => {
     setStatus("Aplicando…");
-    const result = await run(async () => {
-      const fresh = await device.readConfig(waking);
-      if (fresh[ConfigOffset.osMode] === value) return true;
-      const next = withOsMode(fresh, value);
-      await device.writeConfig(next);
-      const after = await device.readConfig(waking);
-      setConfig(after);
-      return sameBytes(after, next);
-    });
+    const result = await run(() =>
+      updateConfig((c) => {
+        c[ConfigOffset.osMode] = value;
+        // Como el driver oficial: en modo Mac la tecla Win no se puede bloquear.
+        if (value === 2) c[ConfigOffset.winLock] = 0;
+      }),
+    );
     setStatus(result === undefined ? "Error: ver la consola HID." : result ? "" : "El teclado guardó otro valor.");
   };
   return (

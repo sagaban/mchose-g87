@@ -154,7 +154,30 @@ export function configDiff(current: Uint8Array) {
  * Offsets del bloque de configuración. Nombres según el driver web oficial (rateVal, latencySwitch, lightType,
  * lightMode, winKeySwitch, sleepTimeVal, macSwitch); los confirmados contra el teclado son effect, osMode y los pares.
  */
-export const ConfigOffset = { lightType: 9, effect: 10, osMode: 27, effectParams: 0x38 } as const;
+export const ConfigOffset = {
+  pollingRate: 1,
+  latency: 3,
+  lightType: 9,
+  effect: 10,
+  winLock: 15,
+  sleep: 24,
+  osMode: 27,
+  effectParams: 0x38,
+} as const;
+
+/** Tasa de sondeo (offset 1): 1 = 250 Hz, 2 = 500 Hz, 3 = 1000 Hz. */
+export const POLLING_RATES = [
+  { value: 1, label: "250 Hz" },
+  { value: 2, label: "500 Hz" },
+  { value: 3, label: "1000 Hz" },
+] as const;
+
+/** Modo Top Speed / baja latencia (offset 3): 0 = activado, 2 = estándar (valores del G87 en el driver oficial). */
+export const LATENCY = { on: 0, off: 2 } as const;
+
+/** Suspensión (offset 24): minutos × 2, de 0,5 a 20 min; 0 = nunca se duerme. */
+export const sleepMinutes = (value: number) => value / 2;
+export const sleepValue = (minutes: number) => Math.round(Math.max(0, Math.min(20, minutes)) * 2);
 
 /**
  * Modo del sistema (byte 27 de la configuración; Fn+W / Fn+E). Confirmado contra el teclado: cambiar de modo

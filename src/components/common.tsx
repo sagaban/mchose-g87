@@ -29,10 +29,17 @@ export function Panel(props: {
   );
 }
 
-/** Lista de pares etiqueta/valor. */
-export function DataList(props: { items: [JSX.Element, JSX.Element][] }) {
+/** Lista de pares etiqueta/valor. `spacious` separa más las filas (para controles, no solo texto). */
+export function DataList(props: { items: [JSX.Element, JSX.Element][]; spacious?: boolean }) {
   return (
-    <Grid as="dl" gridTemplateColumns="max-content 1fr" columnGap="6" rowGap="1.5" textStyle="sm">
+    <Grid
+      as="dl"
+      gridTemplateColumns="max-content 1fr"
+      columnGap={props.spacious ? "8" : "6"}
+      rowGap={props.spacious ? "6" : "1.5"}
+      alignItems={props.spacious ? "center" : undefined}
+      textStyle="sm"
+    >
       <For each={props.items}>
         {([k, v]) => (
           <>
