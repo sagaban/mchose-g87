@@ -120,11 +120,19 @@ pnpm extract
 
 ```
 src/hid.ts           conexión WebHID, lectura/escritura multi-paquete, reintentos y desconexiones
-src/protocol.ts      formatos: configuración, colores, batería, avisos
-src/main.ts          interfaz
+src/protocol.ts      formatos: configuración, colores, mapa de teclas, macros, batería, avisos
+src/state.ts         estado compartido de la interfaz (conexión, datos leídos, log)
+src/App.tsx          encabezado, avisos y pestañas
+src/tabs/            una pestaña por archivo
+src/components/      teclado dibujado, selector de asignación y componentes de Park UI (ui/)
+src/theme/           tema de Park UI (colores, tokens, recetas)
 src/data/g87.json    layout, efectos y paquetes de fábrica (generado)
 scripts/             extracción de datos del instalador oficial
 ```
+
+La interfaz usa [Solid](https://www.solidjs.com/), [Park UI](https://park-ui.com/) y [Panda CSS](https://panda-css.com/)
+(1.x: los componentes de Park UI no son compatibles con Panda 2). `pnpm install` corre `panda codegen`, que genera
+`styled-system/`.
 
 ## Licencia
 

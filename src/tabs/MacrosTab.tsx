@@ -1,3 +1,247 @@
+import { Circle, Plus, RefreshCw, Square, Trash2 } from "lucide-solid";
+import { createSignal, For, onCleanup, Show } from "solid-js";
+import { css } from "styled-system/css";
+import { HStack, Stack, Wrap } from "styled-system/jsx";
+import { muted, Panel } from "~/components/common";
+import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import * as Field from "~/components/ui/field";
+import { Input } from "~/components/ui/input";
+import * as Switch from "~/components/ui/switch";
+import {
+  buildMacros,
+  Cmd,
+  describeMacroEvent,
+  HID_BY_CODE,
+  keyAssignment,
+  keys,
+  LAYERS,
+  MACRO_MODES,
+  MACRO_PAGE,
+  macroKeyKind,
+  MOD_KEY_BY_CODE,
+  parseMacros,
+  type Macro,
+  type MacroEvent,
+} from "~/protocol";
+import { hid, layers, macroMem, macros, readMacroMemory, run, sameBytes } from "~/state";
+
+/** Teclas (en las capas ya leídas) que llaman a la macro `idx`. */
+function macroUsage(idx: number) {
+  const uses: string[] = [];
+  for (const layer of LAYERS) {
+    const data = layers[layer.id];
+    if (!data) continue;
+    for (const key of keys) {
+      const [type, mode, hi, lo] = keyAssignment(data, key);
+      if (type === 3 && hi === 1 && lo === idx) {
+        const prefix = layer.id === 0 ? "" : `${layer.name} + `;
+        uses.push(`${prefix}${key.label} (${MACRO_MODES.find((m) => m.mode === mode)?.short ?? mode})`);
+      }
+    }
+  }
+  return uses;
+}
+
+const layersRead = () => LAYERS.some((l) => layers[l.id]);
+
+function Events(props: { events: MacroEvent[] }) {
+  return (
+    <Wrap gap="1" maxH="32" overflowY="auto">
+      <For each={props.events} fallback={<span class={muted}>Sin eventos todavía.</span>}>
+        {(e) => (
+          <Badge size="sm" variant={e.down ? "subtle" : "outline"} colorPalette={e.down ? "blue" : "gray"} title={`${e.delay} ms`}>
+            {describeMacroEvent(e)}
+          </Badge>
+        )}
+      </For>
+    </Wrap>
+  );
+}
+
+/** Editor: graba eventos del teclado físico con sus tiempos. `index` null = macro nueva. */
+function MacroEditor(props: { index: number | null; onClose: () => void }) {
+  const existing = () => (props.index === null ? null : macros()![props.index]);
+  const [name, setName] = createSignal(existing()?.name ?? `m${(macros()?.length ?? 0) + 1}`);
+  const [events, setEvents] = createSignal<MacroEvent[]>(existing()?.events.map((e) => ({ ...e })) ?? []);
+  const [fixed, setFixed] = createSignal(true);
+  const [delay, setDelay] = createSignal(10);
+  const [recording, setRecording] = createSignal(false);
+  const [status, setStatus] = createSignal("");
+  const [saving, setSaving] = createSignal(false);
+
+  let stop: (() => void) | null = null;
+  const record = () => {
+    setRecording(true);
+    let last = 0;
+    const push = (e: KeyboardEvent, down: boolean) => {
+      if (e.repeat) return e.preventDefault();
+      const code = MOD_KEY_BY_CODE[e.code] ?? HID_BY_CODE[e.code];
+      if (!code) return;
+      e.preventDefault();
+      const now = performance.now();
+      setEvents((evs) => {
+        const next = [...evs];
+        // La demora va en el evento anterior: es el tiempo hasta este.
+        if (next.length && last) next[next.length - 1] = { ...next[next.length - 1], delay: Math.max(1, Math.round(now - last)) };
+        next.push({ down, kind: macroKeyKind(code), code, delay: 10 });
+        return next;
+      });
+      last = now;
+    };
+    const onDown = (e: KeyboardEvent) => push(e, true);
+    const onUp = (e: KeyboardEvent) => push(e, false);
+    window.addEventListener("keydown", onDown, true);
+    window.addEventListener("keyup", onUp, true);
+    stop = () => {
+      window.removeEventListener("keydown", onDown, true);
+      window.removeEventListener("keyup", onUp, true);
+      setRecording(false);
+      stop = null;
+    };
+  };
+  onCleanup(() => stop?.());
+
+  /**
+   * Relee la memoria (y aborta si cambió desde la última lectura), reemplaza o agrega la macro,
+   * reescribe la memoria completa conservando las demás y verifica releyendo.
+   */
+  const save = async () => {
+    stop?.();
+    const n = name().trim();
+    if (!n) return void setStatus("Poné un nombre.");
+    if (!events().length) return void setStatus("La macro no tiene eventos.");
+    const evs = fixed() ? events().map((e) => ({ ...e, delay: Math.max(1, Math.min(60000, delay())) })) : events();
+    const known = macroMem();
+    setSaving(true);
+    setStatus("Leyendo memoria…");
+    const result = await run(async () => {
+      const fresh = await readMacroMemory();
+      if (!known || !sameBytes(fresh, known))
+        return "Las macros del teclado cambiaron desde que las leíste: revisá la lista y volvé a guardar.";
+      const list: Macro[] = parseMacros(fresh);
+      if (props.index === null) list.push({ name: n, events: evs });
+      else list[props.index] = { name: n, events: evs };
+      const mem = buildMacros(list);
+      // La app oficial admite hasta 8 páginas de 512 bytes.
+      if (mem.length > 8 * MACRO_PAGE) return `No entra: ${mem.length} bytes de ${8 * MACRO_PAGE}. Acortá la macro.`;
+      // Cada página es una tanda aparte: índice desde 0 y la página en el nibble alto del largo
+      // (así lo hace la app de Windows; con índices continuos el teclado descarta la página 1).
+      for (let page = 0; page * MACRO_PAGE < mem.length; page++) {
+        setStatus(`Escribiendo página ${page + 1}…`);
+        await hid.writeBlock(Cmd.setMacros, mem.slice(page * MACRO_PAGE, (page + 1) * MACRO_PAGE), { lenTag: page << 4 });
+      }
+      setStatus("Verificando…");
+      const after = await readMacroMemory();
+      return sameBytes(after, mem) ? `ok:${props.index === null ? list.length : props.index + 1}` : "El teclado guardó otros datos: revisá la consola.";
+    });
+    setSaving(false);
+    if (result?.startsWith("ok:")) {
+      setStatus("");
+      props.onClose();
+    } else setStatus(result ?? "Error: ver la consola HID.");
+  };
+
+  return (
+    <Panel title={existing() ? `Regrabar ${props.index! + 1}. ${existing()!.name}` : "Nueva macro"}>
+      <Stack gap="4">
+        <HStack gap="4" alignItems="end" flexWrap="wrap">
+          <Field.Root w="48">
+            <Field.Label>Nombre</Field.Label>
+            <Input size="sm" maxLength={15} value={name()} onInput={(e) => setName(e.currentTarget.value)} />
+          </Field.Root>
+          <Switch.Root checked={fixed()} onCheckedChange={(d) => setFixed(d.checked)} colorPalette="blue">
+            <Switch.Control />
+            <Switch.Label>Demora fija</Switch.Label>
+            <Switch.HiddenInput />
+          </Switch.Root>
+          <Show when={fixed()}>
+            <HStack gap="2">
+              <Input size="sm" w="24" type="number" min={1} max={60000} value={delay()} onInput={(e) => setDelay(Number(e.currentTarget.value) || 10)} />
+              <span class={muted}>ms entre eventos</span>
+            </HStack>
+          </Show>
+        </HStack>
+
+        <HStack gap="2" flexWrap="wrap">
+          <Button size="sm" colorPalette={recording() ? "red" : "blue"} onClick={() => (recording() ? stop?.() : record())}>
+            {recording() ? <Square /> : <Circle />} {recording() ? "Detener" : "Grabar"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setEvents([])}>
+            <Trash2 /> Borrar eventos
+          </Button>
+          <span class={muted}>Mientras graba, todo lo que tipees queda en la macro (no llega a la página).</span>
+        </HStack>
+
+        <Events events={events()} />
+
+        <HStack gap="3">
+          <Button size="sm" colorPalette="blue" loading={saving()} onClick={save}>
+            Guardar en el teclado
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => (stop?.(), props.onClose())}>
+            Cancelar
+          </Button>
+          <span class={muted}>{status()}</span>
+        </HStack>
+      </Stack>
+    </Panel>
+  );
+}
+
 export default function MacrosTab() {
-  return <p>En migración.</p>;
+  /** undefined = editor cerrado; null = macro nueva; número = regrabar esa. */
+  const [editing, setEditing] = createSignal<number | null | undefined>(undefined);
+  const [reading, setReading] = createSignal(false);
+
+  const read = async () => {
+    setReading(true);
+    await run(readMacroMemory);
+    setReading(false);
+  };
+
+  return (
+    <Stack gap="4">
+      <HStack gap="3" flexWrap="wrap">
+        <Button size="sm" colorPalette="blue" loading={reading()} loadingText="Leyendo…" onClick={read}>
+          <RefreshCw /> Leer macros
+        </Button>
+        <Button size="sm" variant="outline" disabled={!macros()} onClick={() => setEditing(null)}>
+          <Plus /> Nueva macro
+        </Button>
+        <span class={muted}>
+          {macros()
+            ? `${macros()!.length} macros · ${macroMem()!.length} bytes.${layersRead() ? "" : " Leé las capas en Teclado para ver qué tecla usa cada una."}`
+            : "Leé las macros para verlas. Se guardan en el teclado y las llama una tecla asignada en la pestaña Teclado."}
+        </span>
+      </HStack>
+
+      <Show when={editing() !== undefined}>
+        <MacroEditor index={editing()!} onClose={() => setEditing(undefined)} />
+      </Show>
+
+      <For each={macros() ?? []}>
+        {(m, i) => (
+          <Panel
+            title={`${i() + 1}. ${m.name || "(sin nombre)"}`}
+            description={`${m.events.length} eventos · ${m.events.reduce((t, e) => t + e.delay, 0)} ms`}
+            actions={
+              <Button size="xs" variant="outline" onClick={() => setEditing(i())}>
+                Regrabar
+              </Button>
+            }
+          >
+            <Stack gap="3">
+              <Show when={layersRead()}>
+                <p class={css({ textStyle: "sm" })}>
+                  {macroUsage(i()).length ? `Asignada a: ${macroUsage(i()).join(", ")}` : "No está asignada a ninguna tecla de las capas leídas."}
+                </p>
+              </Show>
+              <Events events={m.events} />
+            </Stack>
+          </Panel>
+        )}
+      </For>
+    </Stack>
+  );
 }
