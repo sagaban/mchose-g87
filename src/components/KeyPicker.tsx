@@ -164,7 +164,7 @@ export default function KeyPicker(props: {
             {(o) => (
               <button
                 type="button"
-                title={o.group}
+                title={`${o.label} · ${o.group}`}
                 class={cx(
                   chip,
                   sameAssignment(o.value, props.current) && chipCurrent,

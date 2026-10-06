@@ -2,6 +2,7 @@ import { For, Show } from "solid-js";
 import { css, cx } from "styled-system/css";
 import { describeAssignment, keyAssignment, keys, shortAssignment, type Assignment, type Key } from "~/protocol";
 import { macros } from "~/state";
+import AssignmentIcon, { iconFor } from "./AssignmentIcon";
 import { factoryAssignment, sameAssignment } from "./keymap";
 import { LAYOUT, LAYOUT_H, LAYOUT_W } from "./layout";
 
@@ -44,7 +45,7 @@ export default function Board(props: {
   onSelect: (k: Key | null) => void;
 }) {
   const info = (key: Key) => {
-    if (!props.layer) return { text: key.label, base: null, title: key.label, remapped: false, empty: false };
+    if (!props.layer) return { text: key.label, icon: null, base: null, title: key.label, remapped: false, empty: false };
     const a: Assignment = keyAssignment(props.layer, key);
     const full = describeAssignment(a);
     // En Fn/Fn2 una tecla sin asignar no hace nada: se muestra su nombre para ubicarla.
@@ -53,6 +54,7 @@ export default function Board(props: {
     const macroName = a[0] === 3 && a[2] === 1 ? macros()?.[a[3]]?.name : undefined;
     return {
       text: empty ? key.label : macroName || shortAssignment(a),
+      icon: empty ? null : iconFor(a),
       // En Fn/Fn2 se muestra arriba la tecla física, para saber dónde está cada función.
       base: props.layerId !== 0 && !empty ? key.label : null,
       title: `${key.label}: ${empty ? "sin asignar en esta capa" : full}${macroName ? ` ("${macroName}")` : ""}`,
@@ -97,7 +99,9 @@ export default function Board(props: {
               <Show when={info(key).base}>
                 <span class={baseLabel}>{info(key).base}</span>
               </Show>
-              <span>{info(key).text}</span>
+              <Show when={info(key).icon} fallback={<span>{info(key).text}</span>}>
+                {(spec) => <AssignmentIcon spec={spec()} />}
+              </Show>
             </button>
           );
         }}

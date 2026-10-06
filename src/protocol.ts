@@ -325,10 +325,22 @@ const CONSUMER_SHORT: Record<number, string> = {
 };
 
 /**
- * Funciones propias del firmware en la capa Fn (tipos 07/08). Solo las confirmadas contra el teclado;
- * el resto se muestra con su código.
+ * Funciones propias del firmware (tipos 07/08), según el manual del G87 y lo confirmado contra el teclado.
+ * Valor → [nombre completo, nombre corto].
  */
-const FIRMWARE: Record<string, [string, string]> = {
+export const FIRMWARE: Record<string, [string, string]> = {
+  "07 00 00 01": ["Bloquear la tecla Win", "Win lock"],
+  "07 00 00 04": ["Restaurar configuración de fábrica (mantener 3 s)", "Reset"],
+  "07 00 00 05": ["Dispositivo Bluetooth 1 (mantener para emparejar)", "BT1"],
+  "07 00 00 06": ["Dispositivo Bluetooth 2 (mantener para emparejar)", "BT2"],
+  "07 00 00 07": ["Dispositivo Bluetooth 3 (mantener para emparejar)", "BT3"],
+  "07 00 00 08": ["Emparejar el receptor 2.4G (mantener 3 s)", "2.4G"],
+  "07 00 00 0a": ["Función del teclado no documentada en el manual (07 00 00 0A)", "?"],
+  "07 00 00 11": ["Mostrar el nivel de batería en las teclas 1–0", "Batería"],
+  "07 00 00 18": ["Modo Windows", "Win"],
+  "07 00 00 1a": ["Modo Mac (Alt funciona como Command)", "Mac"],
+  "08 00 00 00": ["Cambiar el efecto de luz", "Efecto"],
+  "08 02 00 00": ["Cambiar el color de la luz", "Color"],
   "08 03 01 00": ["Brillo de la luz +", "Luz+"],
   "08 03 02 00": ["Brillo de la luz −", "Luz−"],
   "08 04 01 00": ["Velocidad de la luz +", "Vel+"],
@@ -396,6 +408,14 @@ export const ASSIGNMENT_OPTIONS: AssignmentOption[] = [
     label,
     value: [2, 0, +code >> 8, +code & 0xff] as Assignment,
   })),
+  // Funciones del firmware (la no documentada queda afuera).
+  ...Object.entries(FIRMWARE)
+    .filter(([, [, short]]) => short !== "?")
+    .map(([bytes, [label]]) => ({
+      group: "Funciones",
+      label,
+      value: bytes.split(" ").map((b) => parseInt(b, 16)) as Assignment,
+    })),
   { group: "General", label: "Desactivada", value: [0, 0, 0, 0] },
 ];
 
