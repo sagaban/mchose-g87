@@ -7,9 +7,6 @@ import * as RadioGroup from "~/components/ui/radio-group";
 import * as Slider from "~/components/ui/slider";
 import {
   AUTO_COLOR,
-  COLOR_LEN,
-  colorPayload,
-  Cmd,
   ConfigOffset,
   decodeConfig,
   DEFAULT_PALETTE,
@@ -18,13 +15,12 @@ import {
   LEVEL_MAX,
   palette,
   rgbToHex,
-  trimmedLength,
   withLight,
   withPaletteSlots,
   type Effect,
   type Rgb,
 } from "~/protocol";
-import { colors, config, hasVendorChannel, hid, run, sameBytes, setColors, setConfig, waking } from "~/state";
+import { colors, config, device, hasVendorChannel, run, sameBytes, setColors, setConfig, waking } from "~/state";
 
 /** Valores guardados de un efecto (no necesariamente el activo). */
 function effectValues(cfg: Uint8Array, mode: number) {
@@ -102,7 +98,7 @@ export default function LightingTab() {
     setBusy(true);
     setStatus("Leyendo configuración…");
     const result = await run(async () => {
-      const cfg = await hid.query(Cmd.config, 0x01, waking);
+      const cfg = await device.readConfig(waking);
       const next = withLight(cfg, {
         mode: fx.mode,
         brightness: fx.brightness ? brightness() : undefined,
@@ -110,25 +106,25 @@ export default function LightingTab() {
         colorSource: fx.color || fx.multicolor ? source() : undefined,
       });
       setStatus("Escribiendo…");
-      await hid.writeBlock(Cmd.setConfig, next);
+      await device.writeConfig(next);
 
       let colorsOk = true;
       if (dirty().size) {
-        const current = (await hid.query(Cmd.colors, 0x01, waking)).slice(0, COLOR_LEN);
+        const current = await device.readColors(waking);
         const saved = palette(current, fx.mode);
         const edited = new Map([...dirty()].filter((i) => rgbToHex(saved[i]) !== rgbToHex(pal()[i])).map((i) => [i, pal()[i]]));
         if (edited.size) {
           const nextColors = withPaletteSlots(current, fx.mode, edited);
           setStatus("Escribiendo colores…");
-          await hid.writeBlock(Cmd.setColors, colorPayload(nextColors), { lastLen: trimmedLength });
-          const after = (await hid.query(Cmd.colors, 0x01, waking)).slice(0, COLOR_LEN);
+          await device.writeColors(nextColors);
+          const after = await device.readColors(waking);
           setColors(after);
           colorsOk = sameBytes(after, nextColors);
         }
       }
 
       setStatus("Verificando…");
-      const after = await hid.query(Cmd.config, 0x01, waking);
+      const after = await device.readConfig(waking);
       setConfig(after);
       return colorsOk && sameBytes(after, next);
     });

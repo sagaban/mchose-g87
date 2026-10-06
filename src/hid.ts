@@ -320,6 +320,50 @@ export class Hid {
     }
   }
 
+  /** Interfaz con el feature report de 519 bytes: el teclado está conectado por cable. */
+  wiredDevice() {
+    return this.devices.find((d) =>
+      describe(d).some((c) => c.reports.some((r) => r.kind === "feature" && r.id === WIRED_REPORT && r.size >= WIRED_SIZE)),
+    );
+  }
+
+  /**
+   * Lectura por cable: SET_FEATURE con [comando de lectura][encabezado] y GET_FEATURE de la respuesta,
+   * que repite comando y encabezado antes de los datos. El largo de los datos va en el encabezado (bytes 4–5).
+   */
+  wiredRead(cmd: number, header: number[]): Promise<Uint8Array> {
+    return this.exclusive(async () => {
+      const d = this.wiredDevice();
+      if (!d) throw new DisconnectedError("El teclado no está conectado por cable.");
+      const req = new Uint8Array(WIRED_SIZE);
+      req.set([cmd, ...header]);
+      await d.sendFeatureReport(WIRED_REPORT, req);
+      this.log({ dir: "feature-set", device: deviceLabel(d), reportId: WIRED_REPORT, data: req.slice(0, 7) });
+      const view = await d.receiveFeatureReport(WIRED_REPORT);
+      const res = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+      this.log({ dir: "feature-get", device: deviceLabel(d), reportId: WIRED_REPORT, data: res.slice(0, 24) });
+      // En macOS Chrome incluye el report ID al principio de la respuesta; en otros sistemas no.
+      const off = res[0] === WIRED_REPORT && res[1] === cmd ? 1 : 0;
+      if (res[off] !== cmd) throw new Error(`Respuesta inesperada al comando 0x${cmd.toString(16)} por cable.`);
+      const len = header[4] | (header[5] << 8);
+      return res.slice(off + 7, off + 7 + len);
+    });
+  }
+
+  /** Escritura por cable: [comando][encabezado][datos] en un solo feature report. */
+  wiredWrite(cmd: number, header: number[], data: Uint8Array): Promise<void> {
+    return this.exclusive(async () => {
+      const d = this.wiredDevice();
+      if (!d) throw new DisconnectedError("El teclado no está conectado por cable.");
+      if (7 + data.length > WIRED_SIZE) throw new Error(`Bloque demasiado grande para un paquete: ${data.length} bytes.`);
+      const req = new Uint8Array(WIRED_SIZE);
+      req.set([cmd, ...header]);
+      req.set(data, 7);
+      await d.sendFeatureReport(WIRED_REPORT, req);
+      this.log({ dir: "feature-set", device: deviceLabel(d), reportId: WIRED_REPORT, data: req.slice(0, 24) });
+    });
+  }
+
   /** Espera un input report 0x13 válido que cumpla `match`. Resuelve false al vencer el plazo. */
   private waitFor(d: HIDDevice, match: (b: Uint8Array) => boolean, ms: number) {
     return new Promise<boolean>((resolve) => {
@@ -343,6 +387,9 @@ export class Hid {
 const CHUNK = 14;
 
 export const VENDOR_REPORT = 0x13;
+/** Por cable: feature report 0x06 de 519 bytes ([comando][encabezado de 6][datos]). */
+export const WIRED_REPORT = 0x06;
+const WIRED_SIZE = 519;
 
 /** 19 bytes de payload (sin report ID). El último es la suma de report ID + bytes 0..17. */
 export function buildVendorPacket(cmd: number, sub: number, data: ArrayLike<number> = []) {

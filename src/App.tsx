@@ -32,7 +32,8 @@ function BatteryBadge() {
         title={conn.battery!.charging ? "Cargando" : "A batería"}
       >
         {icon()}
-        {conn.battery!.percent} %
+        {/* Por cable el teclado informa 0 %: solo se sabe que está cargando. */}
+        {conn.battery!.percent === 0 && conn.battery!.charging ? "Cargando" : `${conn.battery!.percent} %`}
       </Badge>
     </Show>
   );

@@ -19,8 +19,8 @@ nada, no necesita drivers y no se conecta a ningún servidor.
 - **Sin sorpresas:** cada cambio se lee, se escribe solo lo necesario y se verifica releyendo el teclado.
 - **Herramientas de análisis:** layout del teclado, paquetes de fábrica decodificados y una consola HID con log.
 
-Probado con el G87 conectado por el **receptor 2.4 GHz** (USB `41e4:2001`). El modo por cable todavía no está
-implementado.
+Probado con el G87 conectado por el **receptor 2.4 GHz** (USB `41e4:2001`) y **por cable** (USB `41e4:2201`, con el
+selector del teclado en modo cable). La app detecta cómo está conectado y usa el transporte que corresponde.
 
 ## Requisitos
 
@@ -50,7 +50,9 @@ Algunas cosas a saber:
 
 ## Protocolo
 
-Todo pasa por el report HID **`0x13`** de la interfaz vendor (usage page `0xFF02`), con paquetes de 20 bytes:
+Los datos (configuración, colores, mapa de teclas, macros) tienen el mismo formato en las dos conexiones; cambia
+el transporte. **Por el receptor** todo pasa por el report HID **`0x13`** de la interfaz vendor (usage page `0xFF02`),
+con paquetes de 20 bytes:
 
 ```
 [0x13] [cmd] [total] [índice] [largo] [datos × 14] [checksum]
@@ -81,6 +83,21 @@ checksum = (0x13 + suma de los 18 bytes anteriores) & 0xFF
 `5A A5` y el último pedazo se manda con el largo sin los ceros finales.
 
 **Batería:** `63 10` = 99 % con cable; `61 01` = 97 % a batería.
+
+**Por cable** se usa el feature report **`0x06`** de 519 bytes: `[comando][encabezado de 6 bytes][datos]`. Para leer
+se manda el comando con el bit `0x80` y se lee la respuesta (que repite comando y encabezado antes de los datos);
+para escribir, el comando sin ese bit con el mismo encabezado y los datos, en un solo paquete.
+
+| Bloque | Lectura | Escritura | Encabezado |
+|---|---|---|---|
+| Configuración | `0x84` | `0x04` | `00 00 01 00 80 00` |
+| Colores | `0x8A` | `0x0A` | `00 00 01 00 00 02` (512 bytes, con la cola `5A A5`) |
+| Mapa de teclas | `0x83` | `0x03` | `capa 00 01 00 F8 01` |
+| Macros, por página | `0x85` | `0x05` | `00 00 páginas página largo` |
+| Batería | `0x87` | — | `00 00 01 00 02 00` (por cable el nivel viene en 0) |
+
+El driver web guarda los comandos de escritura como texto y los convierte en decimal: su `"10"` para colores es
+`0x0A`.
 
 **Mapa de teclas:** la lectura lleva la capa en los argumentos (`41 01 00 YY`, con `YY` = `00` Default, `10` Fn,
 `20` Fn2) y la escritura en el nibble alto del byte de largo (`capa<<4 | largo`). Cada tecla ocupa 4 bytes

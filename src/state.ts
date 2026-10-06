@@ -2,11 +2,9 @@
 // Los datos del teclado se guardan como Uint8Array inmutables: cada lectura reemplaza el valor.
 import { batch, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
+import { createDevice } from "./device";
 import { Hid, VENDOR_REPORT, type LogEntry } from "./hid";
 import {
-  Cmd,
-  MACRO_PAGE,
-  macroMemoryEnd,
   parseBattery,
   parseMacros,
   parseNotice,
@@ -15,6 +13,8 @@ import {
 } from "./protocol";
 
 export const hid = new Hid();
+/** Operaciones con el teclado, por receptor o por cable según cómo esté conectado. */
+export const device = createDevice(hid);
 
 export const [conn, setConn] = createStore({
   /** Interfaces abiertas. */
@@ -30,7 +30,8 @@ export const [conn, setConn] = createStore({
 });
 
 export const connected = () => conn.devices.length > 0;
-export const hasVendorChannel = () => conn.devices.length > 0 && !!hid.find("output", VENDOR_REPORT);
+/** Hay un canal de configuración (receptor 2.4G o cable). */
+export const hasVendorChannel = () => conn.devices.length > 0 && device.available();
 
 /** Configuración (0x44), paletas (0x49), capas del mapa de teclas (0x41) y macros (0x43). */
 export const [config, setConfig] = createSignal<Uint8Array | null>(null);
@@ -96,6 +97,8 @@ function syncDevices() {
   batch(() => {
     setConn("devices", [...hid.devices]);
     setConn("lost", hid.lost);
+    // Por cable el teclado no se duerme.
+    if (device.wired()) setConn("awake", true);
     if (!hid.devices.length) {
       setConn("battery", null);
       setConn("awake", null);
@@ -111,7 +114,7 @@ export async function refreshBattery({ timeoutMs = 5000 } = {}) {
   if (batteryPending || !hasVendorChannel()) return;
   batteryPending = true;
   try {
-    setConn("battery", parseBattery(await hid.query(Cmd.battery, 0x01, { timeoutMs })));
+    setConn("battery", parseBattery(await device.readBattery({ timeoutMs })));
   } catch {
     if (connected()) setConn("awake", false);
   } finally {
@@ -133,28 +136,22 @@ if (hid.supported) {
 // ---------- Lecturas ----------
 
 export const readConfig = async () => {
-  const [cfg, pal] = [await hid.query(Cmd.config, 0x01, waking), await hid.query(Cmd.colors, 0x01, waking)];
+  const cfg = await device.readConfig(waking);
+  const pal = await device.readColors(waking);
   batch(() => {
     setConfig(cfg);
-    setColors(pal.slice(0, 490));
+    setColors(pal);
   });
 };
 
 export const readLayer = async (layer: number) => {
-  // La respuesta trae la capa en el nibble alto del largo: solo se aceptan pedazos de esta capa.
-  const data = await hid.query(Cmd.keymap, 0x01, { ...waking, args: [0x00, layer << 4], accept: (b) => b[3] >> 4 === layer });
+  const data = await device.readLayer(layer, waking);
   setLayers(layer, data);
   return data;
 };
 
 /** Lee las páginas necesarias de la memoria de macros (la tabla dice hasta dónde hay datos), sin tocar el estado. */
-export async function fetchMacroMemory() {
-  const page = (n: number) => hid.query(Cmd.macros, 0x01, { ...waking, args: [0x00, n << 4] });
-  let mem = await page(0);
-  const end = macroMemoryEnd(mem);
-  for (let n = 1; n * MACRO_PAGE < end; n++) mem = new Uint8Array([...mem, ...(await page(n))]);
-  return mem.slice(0, end);
-}
+export const fetchMacroMemory = () => device.readMacroMemory(waking);
 
 /** Lee la memoria de macros y la guarda en el estado (solo si cambió, para no redibujar la lista). */
 export async function readMacroMemory() {

@@ -8,18 +8,15 @@ import { factoryAssignment, sameAssignment } from "~/components/keymap";
 import { Button } from "~/components/ui/button";
 import * as SegmentGroup from "~/components/ui/segment-group";
 import {
-  Cmd,
   describeAssignment,
   hexBytes,
   keyAssignment,
-  keymapPayload,
   LAYERS,
-  trimmedLength,
   withAssignment,
   type Assignment,
   type Key,
 } from "~/protocol";
-import { hid, layers, readLayer, run, sameBytes } from "~/state";
+import { device, layers, readLayer, run, sameBytes } from "~/state";
 
 export default function KeyboardTab() {
   const [layerId, setLayerId] = createSignal(0);
@@ -52,7 +49,7 @@ export default function KeyboardTab() {
       const next = withAssignment(fresh, key, value);
       if (sameBytes(next, fresh)) return "Ya tenía esa asignación.";
       setStatus("Escribiendo…");
-      await hid.writeBlock(Cmd.setKeymap, keymapPayload(next), { lenTag: id << 4, lastLen: trimmedLength });
+      await device.writeLayer(id, next);
       setStatus("Verificando…");
       const after = await readLayer(id);
       return sameBytes(after, next) ? "Aplicado ✓" : "El teclado guardó otros valores: revisá la consola.";

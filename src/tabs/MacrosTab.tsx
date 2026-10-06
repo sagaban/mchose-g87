@@ -11,11 +11,9 @@ import { Input } from "~/components/ui/input";
 import * as Switch from "~/components/ui/switch";
 import {
   buildMacros,
-  Cmd,
   describeMacroEvent,
   HID_BY_CODE,
   keyAssignment,
-  keymapPayload,
   keys,
   LAYERS,
   MACRO_MODES,
@@ -23,13 +21,12 @@ import {
   macroKeyKind,
   MOD_KEY_BY_CODE,
   parseMacros,
-  trimmedLength,
   withMacroRemoved,
   type Macro,
   type MacroEvent,
 } from "~/protocol";
 import * as Dialog from "~/components/ui/dialog";
-import { fetchMacroMemory, hid, layers, macroMem, macros, readLayer, readMacroMemory, run, sameBytes } from "~/state";
+import { device, fetchMacroMemory, layers, macroMem, macros, readLayer, readMacroMemory, run, sameBytes } from "~/state";
 
 /** Teclas (en las capas ya leídas) que llaman a la macro `idx`. */
 function macroUsage(idx: number) {
@@ -189,12 +186,7 @@ async function writeMacroMemory(list: Macro[], onStatus: (s: string) => void) {
   // Sin macros se escribe una tabla vacía (4 ceros): la primera dirección en 0 significa "ninguna".
   const mem = list.length ? buildMacros(list) : new Uint8Array(4);
   if (mem.length > 8 * MACRO_PAGE) throw new Error(`No entra: ${mem.length} bytes de ${8 * MACRO_PAGE}.`);
-  // Cada página es una tanda aparte: índice desde 0 y la página en el nibble alto del largo
-  // (así lo hace la app de Windows; con índices continuos el teclado descarta la página 1).
-  for (let page = 0; page * MACRO_PAGE < mem.length; page++) {
-    onStatus(`Escribiendo macros, página ${page + 1}…`);
-    await hid.writeBlock(Cmd.setMacros, mem.slice(page * MACRO_PAGE, (page + 1) * MACRO_PAGE), { lenTag: page << 4 });
-  }
+  await device.writeMacroMemory(mem, (page) => onStatus(`Escribiendo macros, página ${page + 1}…`));
   onStatus("Verificando macros…");
   const after = await readMacroMemory();
   return list.length ? sameBytes(after, mem) : parseMacros(after).length === 0;
@@ -238,7 +230,7 @@ function DeleteMacro(props: { index: number; onClose: () => void }) {
       for (const c of p.changes) {
         if (!c.cleared.length && !c.shifted.length) continue;
         setStatus(`Actualizando capa ${c.name}…`);
-        await hid.writeBlock(Cmd.setKeymap, keymapPayload(c.layer), { lenTag: c.id << 4, lastLen: trimmedLength });
+        await device.writeLayer(c.id, c.layer);
         if (!sameBytes(await readLayer(c.id), c.layer)) return `El teclado guardó otros valores en la capa ${c.name}: revisá la consola.`;
       }
       return "ok";

@@ -4,8 +4,8 @@ import { HStack, Stack } from "styled-system/jsx";
 import { DataList, HexDump, mono, muted, Panel } from "~/components/common";
 import { Button } from "~/components/ui/button";
 import { describe, deviceLabel } from "~/hid";
-import { AUTO_COLOR, Cmd, configDiff, decodeConfig, hex, hexBytes, parseBattery } from "~/protocol";
-import { config, conn, hasVendorChannel, hid, readConfig, run, setConn, waking } from "~/state";
+import { AUTO_COLOR, configDiff, decodeConfig, hex, hexBytes, parseBattery } from "~/protocol";
+import { config, conn, device, hasVendorChannel, readConfig, run, setConn, waking } from "~/state";
 
 const table = css({
   w: "full",
@@ -20,17 +20,21 @@ function KeyboardState() {
   const awakeText = () =>
     conn.awake === null ? "—" : conn.awake ? "Despierto" : "Dormido: apretá una tecla para despertarlo";
   const batteryText = () =>
-    conn.battery ? `${conn.battery.percent} %${conn.battery.charging ? " · cargando" : ""}` : "Se actualiza cuando despierte";
+    !conn.battery
+      ? "Se actualiza cuando despierte"
+      : conn.battery.percent === 0 && conn.battery.charging
+        ? "Cargando (por cable el teclado no informa el nivel)"
+        : `${conn.battery.percent} %${conn.battery.charging ? " · cargando" : ""}`;
 
   return (
     <Panel
       title="Estado del teclado"
       actions={
         <HStack gap="2" flexWrap="wrap">
-          <Button size="sm" variant="outline" onClick={() => run(async () => setConn("battery", parseBattery(await hid.query(Cmd.battery, 0x01, waking))))}>
+          <Button size="sm" variant="outline" onClick={() => run(async () => setConn("battery", parseBattery(await device.readBattery(waking))))}>
             Leer batería
           </Button>
-          <Button size="sm" variant="outline" onClick={() => run(async () => setConn("version", await hid.query(Cmd.version, 0x01, waking)))}>
+          <Button size="sm" variant="outline" onClick={() => run(async () => setConn("version", await device.readVersion(waking)))}>
             Leer versión
           </Button>
           <Button size="sm" colorPalette="blue" onClick={() => run(readConfig)}>
